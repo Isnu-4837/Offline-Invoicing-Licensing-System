@@ -1,0 +1,29 @@
+{
+  "name": "key-generator-app",
+  "productName": "Key Generator Tool",
+  "version": "1.0.0",
+  "description": "Standalone offline activation key generator for NextGen Invoice",
+  "author": "Isnu Gupta",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win"
+  },
+  "build": {
+    "appId": "com.keygen.app",
+    "productName": "Key Generator Tool",
+    "win": {
+      "target": "nsis",
+      "icon": "keygen.ico"
+    },
+    "files": [
+      "main.js",
+      "index.html",
+      "package.json"
+    ]
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.13.3"
+  }
+}

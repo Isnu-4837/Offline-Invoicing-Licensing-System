@@ -1,0 +1,12 @@
+node_modules/
+dist/
+build/
+release/
+__pycache__/
+*.py[cod]
+.env
+.venv/
+venv/
+*.db
+app.db
+*.spec
