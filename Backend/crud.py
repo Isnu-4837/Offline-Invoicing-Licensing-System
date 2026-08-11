@@ -1,8 +1,73 @@
 from sqlalchemy.orm import Session
+from sqlalchemy import extract
 from datetime import datetime, timedelta
 import uuid
 import models
+import re
 from sqlalchemy.orm.attributes import flag_modified
+
+def get_sales_report_data(db: Session, timeframe: str, year: int, month: int = None):
+    query = db.query(models.Invoice).filter(
+        models.Invoice.doc_type == models.DocTypeEnum.INVOICE,
+        extract('year', models.Invoice.created_at) == year
+    )
+    if timeframe == "monthly" and month:
+        query = query.filter(extract('month', models.Invoice.created_at) == month)
+    return query.order_by(models.Invoice.created_at.desc()).all()
+
+def get_machine_id() -> str:
+    return str(uuid.getnode())
+
+def verify_key_signature(key_str: str) -> bool:
+    chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    clean_key = key_str.replace("-", "").strip().upper()
+    if len(clean_key) != 14:
+        return False
+    base_str = clean_key[:12]
+    provided_signature = clean_key[12:]
+    total = sum(ord(c) for c in base_str)
+    expected_char1 = chars[total % len(chars)]
+    expected_char2 = chars[(total * 7) % len(chars)]
+    expected_signature = expected_char1 + expected_char2
+    return provided_signature == expected_signature
+
+def check_application_status(db: Session):
+    config = db.query(models.SystemConfig).first()
+    current_machine_id = get_machine_id()
+    if not config:
+        config = models.SystemConfig(is_activated=False)
+        db.add(config)
+        db.commit()
+        db.refresh(config)
+        return {"is_activated": False}
+    if config.is_activated:
+        if getattr(config, 'machine_id', None) != current_machine_id:
+            return {"is_activated": False} 
+    return {"is_activated": config.is_activated}
+
+def activate_application(db: Session, key: str):
+    # Clean the incoming key to ensure it matches our raw 14-char format
+    clean_key = key.replace("-", "").strip().upper()
+    
+    # Update regex to check for exactly 14 alphanumeric characters
+    key_pattern = r"^[A-Z0-9]{14}$"
+    if not re.match(key_pattern, clean_key):
+        return {"success": False, "message": "Invalid key format."}
+        
+    if not verify_key_signature(clean_key):
+        return {"success": False, "message": "Unauthorized key. Activation failed."}
+        
+    config = db.query(models.SystemConfig).first()
+    if not config:
+        config = models.SystemConfig(is_activated=False)
+        db.add(config)
+        
+    config.is_activated = True
+    config.license_key = clean_key
+    config.machine_id = get_machine_id()
+    db.commit()
+    
+    return {"success": True, "message": "Application activated and bound to this machine!"}
 
 def generate_invoice_number(db: Session, doc_type):
     prefix = "INV" if doc_type == models.DocTypeEnum.INVOICE else "QUO"
@@ -47,10 +112,35 @@ def create_invoice(db: Session, data):
     grand_total = round(total_taxable + cgst + sgst + igst + installation_charges, 2)
     remaining_balance = round(grand_total - advance_paid, 2)
 
+    # FIX: Prioritize explicit status passed from frontend UI 
+    frontend_status = getattr(data, 'payment_status', None)
+
+    # --- DETERMINING PAYMENT STATUS & BALANCE ---
+    if data.doc_type == models.DocTypeEnum.QUOTATION:
+        payment_status = "QUOTATION"
+    elif frontend_status == "PAID":
+        payment_status = models.PaymentStatusEnum.PAID
+        remaining_balance = 0.0
+    elif frontend_status in ["DUE", "INSTALLMENT", "PARTIAL"]:
+        payment_status = frontend_status
+        if advance_paid > 0 and frontend_status != "INSTALLMENT":
+            payment_status = "PARTIAL"
+    else:
+        # Fallback for older code blocks if any
+        if grand_total > 0 and (remaining_balance <= 0.0 or advance_paid >= grand_total):
+            payment_status = models.PaymentStatusEnum.PAID
+            remaining_balance = 0.0
+        else:
+            mode_str = str(data.payment_mode or "").upper()
+            if "INSTALLMENT" in mode_str:
+                payment_status = "PARTIAL" if advance_paid > 0 else "INSTALLMENT"
+            else:
+                payment_status = "PARTIAL" if advance_paid > 0 else "DUE"
+
     installment_schedule = []
     next_due_date = None
 
-    if data.payment_mode == models.PaymentModeEnum.FULL or not data.payment_mode:
+    if data.payment_mode == models.PaymentModeEnum.FULL or not data.payment_mode or payment_status == models.PaymentStatusEnum.PAID:
         next_due_date = parse_date_safe(getattr(data, 'due_date', None))
     else:
         parts = 3 if data.payment_mode == models.PaymentModeEnum.INSTALLMENT else 4
@@ -81,7 +171,6 @@ def create_invoice(db: Session, data):
     order_date_val = parse_date_safe(getattr(data, 'order_dated', None))
     delivery_note_date_val = parse_date_safe(getattr(data, 'delivery_note_date', None))
 
-    # --- UPDATE EXISTING INVOICE ---
     if existing_inv:
         existing_inv.doc_type = data.doc_type
         existing_inv.company_name = data.company_name
@@ -135,7 +224,7 @@ def create_invoice(db: Session, data):
         existing_inv.payment_mode = data.payment_mode
         existing_inv.is_gst_enabled = data.is_gst_enabled
         existing_inv.installment_schedule = installment_schedule if installment_schedule else None
-        existing_inv.payment_status = models.PaymentStatusEnum.PAID if remaining_balance <= 0 else models.PaymentStatusEnum.DUE
+        existing_inv.payment_status = payment_status
         existing_inv.next_due_date = next_due_date
         existing_inv.due_date = parse_date_safe(getattr(data, 'due_date', None))
         existing_inv.emi_start_date = parse_date_safe(getattr(data, 'emi_start_date', None))
@@ -144,7 +233,6 @@ def create_invoice(db: Session, data):
         db.refresh(existing_inv)
         return existing_inv
 
-    # --- CREATE NEW INVOICE ---
     else:
         invoice_number = incoming_inv_num.strip() if incoming_inv_num and incoming_inv_num.strip() else generate_invoice_number(db, data.doc_type)
 
@@ -153,7 +241,7 @@ def create_invoice(db: Session, data):
             doc_type=data.doc_type,
             company_name=data.company_name, company_address=data.company_address, company_showroom=data.company_showroom,
             company_gstin=data.company_gstin, company_state=data.company_state, company_state_code=data.company_state_code,
-            company_phones=data.company_phones, company_email=data.company_email, company_pan=data.company_pan,company_logo=data.company_logo,                      
+            company_phones=data.company_phones, company_email=data.company_email, company_pan=data.company_pan, company_logo=data.company_logo,                      
             digital_signature=data.digital_signature, client_name=client_name, client_mobile=data.client_mobile, client_email=data.client_email,
             client_address=data.client_address, client_gstin=data.client_gstin, client_state=data.client_state,
             client_state_code=data.client_state_code, firm_state_code=data.firm_state_code, place_of_supply=data.place_of_supply,
@@ -166,7 +254,7 @@ def create_invoice(db: Session, data):
             remaining_amount=remaining_balance, cgst_total=cgst, sgst_total=sgst, igst_total=igst,
             payment_mode=data.payment_mode, is_gst_enabled=data.is_gst_enabled,
             installment_schedule=installment_schedule if installment_schedule else None,
-            payment_status=models.PaymentStatusEnum.PAID if remaining_balance <= 0 else models.PaymentStatusEnum.DUE,
+            payment_status=payment_status,
             next_due_date=next_due_date, due_date=parse_date_safe(getattr(data, 'due_date', None)), emi_start_date=parse_date_safe(getattr(data, 'emi_start_date', None))
         )
         db.add(invoice)
@@ -174,14 +262,11 @@ def create_invoice(db: Session, data):
         db.refresh(invoice)
         return invoice
 
-
 # --- NEW ERP MODULE HELPERS ---
 
 def create_purchase_invoice(db: Session, data):
     db_item = models.PurchaseInvoiceModel(**data.dict())
     db.add(db_item)
-    
-    # Auto-update Vendor Ledger
     vendor = db.query(models.VendorLedgerModel).filter(models.VendorLedgerModel.name == data.vendor_name).first()
     if not vendor:
         vendor = models.VendorLedgerModel(name=data.vendor_name, total_billed=data.total_amount, pending=data.total_amount)
@@ -189,7 +274,6 @@ def create_purchase_invoice(db: Session, data):
     else:
         vendor.total_billed += data.total_amount
         vendor.pending += data.total_amount
-        
     db.commit()
     db.refresh(db_item)
     return db_item
@@ -251,7 +335,6 @@ def log_stock_change(db: Session, product_name: str, action: str, qty_change: in
     db.add(log)
     db.commit()
 
-# --- INVENTORY HELPERS ---
 def get_inventory(db: Session): return db.query(models.Inventory).all()
 
 def add_inventory_item(db: Session, item_data):
@@ -267,11 +350,9 @@ def update_stock(db: Session, product_id: int, new_quantity: float):
         qty_diff = new_quantity - product.stock_quantity
         product.stock_quantity = new_quantity
         db.commit()
-        # Log the change
         log_stock_change(db, product.product_name, "ADJUST", int(qty_diff), int(new_quantity), "Manual Adjustment")
     return product
 
-# --- READ / PAYMENT HELPERS ---
 def get_all_invoices(db: Session): return db.query(models.Invoice).order_by(models.Invoice.id.desc()).all()
 def get_invoice_by_id(db: Session, invoice_id: int): return db.query(models.Invoice).filter(models.Invoice.id == invoice_id).first()
 def process_payment(db: Session, invoice_id: int, installment_no: int):
@@ -309,7 +390,6 @@ def process_payment(db: Session, invoice_id: int, installment_no: int):
     db.refresh(invoice)
     return invoice
 
-# --- AMC TRACKING ---
 def get_amc_contracts(db: Session):
     return db.query(models.AmcContractModel).all()
 
@@ -319,29 +399,3 @@ def create_amc_contract(db: Session, data):
     db.commit()
     db.refresh(db_item)
     return db_item
-
-# --- STOCK HISTORY ---
-def get_stock_history(db: Session):
-    return db.query(models.StockAuditModel).order_by(models.StockAuditModel.id.desc()).all()
-
-def check_application_status(db: Session):
-    """Checks if a valid activation key exists in the database."""
-    active_license = db.query(models.Activation).filter(models.Activation.is_active == True).first()
-    return {"is_activated": bool(active_license)}
-
-def activate_application(db: Session, key: str):
-    """Validates and stores the 14-character key."""
-    cleaned_key = key.replace("-", "").strip().upper()
-    if len(cleaned_key) != 14:
-        return {"success": False, "message": "Invalid key length. Must be 14 alphanumeric characters."}
-    
-    # Check if already used
-    existing = db.query(models.Activation).filter(models.Activation.key_string == cleaned_key).first()
-    if existing:
-        return {"success": False, "message": "This key has already been activated."}
-    
-    # Save new activation
-    new_activation = models.Activation(key_string=cleaned_key, is_active=True)
-    db.add(new_activation)
-    db.commit()
-    return {"success": True, "message": "Application activated successfully!"}

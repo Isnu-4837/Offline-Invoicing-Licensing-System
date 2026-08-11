@@ -3,14 +3,34 @@ from sqlalchemy.orm import Session
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import extract, func
 from typing import List
+from alembic.config import Config
+from alembic import command
+import os
 import string
 import random
 
 import models, schemas, crud
-from db import engine, get_db
+from db import engine, get_db, ensure_tables_created
 
-# Create database tables
-models.Base.metadata.create_all(bind=engine)
+def run_database_migrations():
+    """Silently applies any pending database updates on startup."""
+    print("Checking for database migrations...")
+    try:
+        # Get the absolute path to alembic.ini
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        alembic_ini_path = os.path.join(current_dir, "alembic.ini")
+        
+        alembic_cfg = Config(alembic_ini_path)
+        command.upgrade(alembic_cfg, "head")
+        print("Database schema is up to date!")
+    except Exception as e:
+        print(f"Migration error (ignoring if DB is already locked): {e}")
+
+# Run migrations before initializing the app
+run_database_migrations()
+
+# Ensure ALL model tables exist (safety net for tables not covered by migrations)
+ensure_tables_created()
 
 app = FastAPI(title="NextGen TechStack ERP - Offline Billing")
 
@@ -23,11 +43,38 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/reports/sales")
+def get_sales_report(timeframe: str, year: int, month: int = None, db: Session = Depends(get_db)):
+    """
+    Fetches aggregated or raw invoice data for reports based on timeframe ('yearly' or 'monthly').
+    """
+    invoices = crud.get_sales_report_data(db, timeframe, year, month)
+    
+    total_sales = sum(inv.total_amount or 0 for inv in invoices)
+    total_due = sum(inv.remaining_amount or 0 for inv in invoices)
+    total_collected = total_sales - total_due
+    
+    return {
+        "timeframe": timeframe,
+        "year": year,
+        "month": month,
+        "total_sales": round(total_sales, 2),
+        "total_collected": round(total_collected, 2),
+        "total_due": round(total_due, 2),
+        "total_invoices": len(invoices),
+        "invoices": invoices
+    }
+
 # --- INVOICE ROUTES ---
 
 @app.post("/invoices", response_model=None)
 def create_invoice(invoice: schemas.InvoiceCreate, db: Session = Depends(get_db)):
     """Creates an invoice or quotation and updates stock if necessary."""
+    return crud.create_invoice(db, invoice)
+
+@app.put("/invoices/{invoice_id}")
+def update_invoice(invoice_id: int, invoice: schemas.InvoiceCreate, db: Session = Depends(get_db)):
+    """Updates an existing invoice."""
     return crud.create_invoice(db, invoice)
 
 @app.get("/invoices")
@@ -196,36 +243,15 @@ def get_amc(db: Session = Depends(get_db)):
 def add_amc(data: schemas.AmcContractCreate, db: Session = Depends(get_db)):
     return crud.create_amc_contract(db, data)
 
-@app.get("/follow-ups")
-def get_followups(db: Session = Depends(get_db)):
-    return crud.get_active_follow_ups(db)
-
-@app.put("/follow-ups/{f_id}/done")
-def complete_followup(f_id: int, db: Session = Depends(get_db)):
-    res = crud.mark_follow_up_done(db, f_id)
-    if not res:
-        raise HTTPException(404, "Follow up not found")
-    return res
-
-@app.get("/stock-history")
-def get_stock_audit(db: Session = Depends(get_db)):
-    return crud.get_stock_history(db)
-
 @app.get("/system/status")
 def get_system_status(db: Session = Depends(get_db)):
     """Frontend calls this to see if the app is locked or unlocked."""
     return crud.check_application_status(db)
 
 @app.post("/system/activate")
-def activate_system(payload: dict, db: Session = Depends(get_db)):
+def activate_system(req: schemas.ActivationRequest, db: Session = Depends(get_db)):
     """Endpoint to submit and verify the activation key."""
-    key = payload.get("key", "")
-    return crud.activate_application(db, key)
-
-# @app.post("/system/generate-key")
-# def generate_key_endpoint():
-#     """Admin endpoint to generate a new 14-digit activation key."""
-#     characters = string.ascii_uppercase + string.digits
-#     key_chars = ''.join(random.choices(characters, k=14))
-#     formatted_key = f"{key_chars[0:4]}-{key_chars[4:8]}-{key_chars[8:12]}-{key_chars[12:14]}"
-#     return {"activation_key": formatted_key}
+    result = crud.activate_application(db, req.key)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("message", "Activation failed."))
+    return result

@@ -3,6 +3,9 @@ from typing import List, Optional
 from datetime import date
 from models import PaymentModeEnum, DocTypeEnum
 
+class ActivationRequest(BaseModel):
+    key: str
+
 class InventoryItem(BaseModel):
     product_name: str
     hsn_code: Optional[str] = None
@@ -40,7 +43,6 @@ class MessageLogCreate(BaseModel):
     client_name: str
     phone_number: str
     status: str
-
 
 # --- EXISTING SCHEMAS ---
 
@@ -110,3 +112,6 @@ class InvoiceCreate(BaseModel):
     emi_start_date: Optional[date] = None
     
     is_gst_enabled: bool = True
+    
+    
+    payment_status: Optional[str] = None

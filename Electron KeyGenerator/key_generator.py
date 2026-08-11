@@ -63,9 +63,26 @@ def _pulse_border(steps):
     root.after(90, lambda: _pulse_border(steps - 1))
 
 
+def _calculate_checksum(base_str):
+    """Generates the 2-character signature based on the first 12 chars."""
+    total = sum(ord(c) for c in base_str)
+    char1 = CHARS[total % len(CHARS)]
+    char2 = CHARS[(total * 7) % len(CHARS)]
+    return char1 + char2
+
+
 def generate_key():
     global _final_key, _tick
-    _final_key = "".join(random.choices(CHARS, k=14))
+    
+    # 1. Generate 12 random base characters
+    base_key = "".join(random.choices(CHARS, k=12))
+    
+    # 2. Calculate the 2-character signature
+    signature = _calculate_checksum(base_key)
+    
+    # 3. Combine them to make the valid 14-character key
+    _final_key = base_key + signature
+    
     _tick = 0
     _set_status("Generating…", CYAN)
     gen_btn.config(text="Generating…")

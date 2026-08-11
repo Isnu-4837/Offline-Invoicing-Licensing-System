@@ -45,6 +45,8 @@ export default function BillingConsole() {
   const navigate = useNavigate();
 
   const [paperSize, setPaperSize] = useState("a4");
+  const [isPaidMarked, setIsPaidMarked] = useState(false);
+  const [preMarkAdvance, setPreMarkAdvance] = useState(0);
   const [showExitModal, setShowExitModal] = useState(false);
   const [pendingNavigationUrl, setPendingNavigationUrl] = useState(null);
 
@@ -52,8 +54,7 @@ export default function BillingConsole() {
     try {
       const cached = localStorage.getItem(COMPANY_CACHE_KEY);
       if (cached) {
-        const parsed = JSON.parse(cached);
-        return parsed;
+        return JSON.parse(cached);
       }
     } catch (e) {
       console.error("Failed to parse cached company details", e);
@@ -128,7 +129,6 @@ export default function BillingConsole() {
     installation_charges: initialDraft?.formData?.installation_charges || 0,
     is_gst_enabled: initialDraft?.formData?.is_gst_enabled ?? true,
 
-    // Image Visibility Toggles
     show_company_logo: initialDraft?.formData?.show_company_logo ?? cachedDetails.show_company_logo ?? true,
     show_digital_signature: initialDraft?.formData?.show_digital_signature ?? cachedDetails.show_digital_signature ?? true,
     show_qr_code: initialDraft?.formData?.show_qr_code ?? cachedDetails.show_qr_code ?? true,
@@ -251,6 +251,12 @@ export default function BillingConsole() {
       const inv = res.data;
 
       setSelectedInvoice(inv);
+      
+      // FIX: Trust the database's explicit status entirely
+      const isFullyPaid = inv.payment_status === "PAID";
+      
+      setIsPaidMarked(isFullyPaid);
+      setPreMarkAdvance(isFullyPaid ? 0 : (Number(inv.advance_paid) || 0));
 
       const safeDate = (dateString) => {
         if (!dateString) return "";
@@ -386,6 +392,10 @@ export default function BillingConsole() {
     cacheCompanyDetails(updatedData);
   };
 
+  const logoInputRef = React.useRef(null);
+  const signatureInputRef = React.useRef(null);
+  const qrInputRef = React.useRef(null);
+
   const handleLogoUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -408,6 +418,14 @@ export default function BillingConsole() {
     }
   };
 
+  const resetImageField = (field, inputRef) => {
+    handleCompanyChange(field, "");
+    if (inputRef.current) inputRef.current.value = "";
+  };
+  const handleResetLogo = () => resetImageField("company_logo", logoInputRef);
+  const handleResetSignature = () => resetImageField("digital_signature", signatureInputRef);
+  const handleResetQr = () => resetImageField("qr_code_image", qrInputRef);
+
   const calculateTotals = () => {
     let subtotal = 0;
     let tax = 0;
@@ -426,8 +444,9 @@ export default function BillingConsole() {
 
     const installation = Number(formData.installation_charges) || 0;
     const grandTotal = subtotal + tax + installation;
-    const advance = Number(formData.advance_paid) || 0;
-    const balance = grandTotal - advance;
+    
+    const advance = isPaidMarked ? grandTotal : (Number(formData.advance_paid) || 0);
+    const balance = isPaidMarked ? 0 : Math.max(0, grandTotal - advance);
 
     return { subtotal, tax, installation, grandTotal, balance };
   };
@@ -510,6 +529,12 @@ export default function BillingConsole() {
       }
     });
 
+    const finalAdvance = isPaidMarked ? grandTotal : (Number(formData.advance_paid) || 0);
+
+    const explicitStatus = isPaidMarked 
+      ? "PAID" 
+      : (formData.payment_mode && formData.payment_mode.includes("INSTALLMENT") ? "INSTALLMENT" : "DUE");
+
     return {
       doc_type: formData.doc_type || "INVOICE",
       company_name: formData.company_name || "",
@@ -556,8 +581,9 @@ export default function BillingConsole() {
       installation_charges: Number(formData.installation_charges) || 0,
       
       payment_mode: formData.payment_mode || "FULL",
-      advance_paid: Number(formData.advance_paid) || 0,
-      due_date: formData.due_date || null,
+      advance_paid: finalAdvance,
+      payment_status: explicitStatus,
+      due_date: isPaidMarked && formData.payment_mode === "FULL" ? null : (formData.due_date || null),
       emi_start_date: formData.emi_start_date || null,
 
       items: flattenedItems,
@@ -571,7 +597,11 @@ export default function BillingConsole() {
     }
     try {
       const payload = compilePayload();
-      await api.post("/invoices", payload);
+      if (selectedInvoice && selectedInvoice.id) {
+        await api.put(`/invoices/${selectedInvoice.id}`, payload);
+      } else {
+        await api.post("/invoices", payload);
+      }
       const updatedInvoices = await fetchInvoices();
       await fetchInventory();
       return updatedInvoices;
@@ -585,6 +615,8 @@ export default function BillingConsole() {
 
   const clearDraftAndResetForm = (latestInvoices = invoiceList) => {
     localStorage.removeItem(DRAFT_STORAGE_KEY);
+    setIsPaidMarked(false);
+    setPreMarkAdvance(0);
     
     setFormData(prev => ({
       ...prev,
@@ -661,7 +693,12 @@ export default function BillingConsole() {
 
     try {
       const payload = compilePayload();
-      const res = await api.post("/invoices", payload);
+      let res;
+      if (selectedInvoice && selectedInvoice.id) {
+        res = await api.put(`/invoices/${selectedInvoice.id}`, payload);
+      } else {
+        res = await api.post("/invoices", payload);
+      }
       const updatedInvoices = await fetchInvoices();
       await fetchInventory();
 
@@ -778,7 +815,7 @@ export default function BillingConsole() {
     });
   };
 
- const numberToWords = (num) => {
+  const numberToWords = (num) => {
     const fixedNum = Number(num).toFixed(2);
     const [rupeeStr, paiseStr] = fixedNum.split(".");
     
@@ -1078,6 +1115,89 @@ export default function BillingConsole() {
           background: rgba(30, 41, 59, 1);
           box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.15);
           transform: translateY(-1px);
+        }
+
+        .field-row {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+          margin-bottom: 10px;
+        }
+        @media (max-width: 560px) {
+          .field-row { grid-template-columns: 1fr; }
+        }
+
+        .img-upload-card {
+          display: flex;
+          flex-direction: column;
+        }
+        .img-upload-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 8px;
+        }
+        .img-upload-show {
+          font-size: 10px;
+          color: #94a3b8;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          cursor: pointer;
+          font-weight: bold;
+        }
+        .img-preview-box {
+          height: 56px;
+          border-radius: 8px;
+          border: 1px dashed rgba(255, 255, 255, 0.12);
+          background: rgba(15, 23, 42, 0.5);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin-bottom: 8px;
+          overflow: hidden;
+        }
+        .img-preview-box img {
+          max-height: 44px;
+          max-width: 100%;
+          object-fit: contain;
+        }
+        .img-preview-empty {
+          font-size: 10px;
+          color: #475569;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          font-weight: 700;
+        }
+        .img-upload-actions {
+          display: flex;
+          gap: 6px;
+          align-items: stretch;
+        }
+        .img-upload-actions .file-input-wrap {
+          flex: 1;
+        }
+        .img-reset-btn {
+          flex-shrink: 0;
+          padding: 0 12px;
+          border-radius: 8px;
+          border: 1px solid rgba(248, 113, 113, 0.3);
+          background: rgba(248, 113, 113, 0.12);
+          color: #fca5a5;
+          font-size: 11px;
+          font-weight: 700;
+          cursor: pointer;
+          transition: background 0.2s ease, transform 0.15s ease, border-color 0.2s ease;
+        }
+        .img-reset-btn:hover {
+          background: rgba(248, 113, 113, 0.22);
+          border-color: rgba(248, 113, 113, 0.5);
+          transform: translateY(-1px);
+        }
+        .img-reset-btn:disabled {
+          opacity: 0.35;
+          cursor: not-allowed;
+          transform: none;
         }
 
         .item-card { 
@@ -1556,14 +1676,7 @@ export default function BillingConsole() {
                 onChange={(e) => handleCompanyChange("company_address", e.target.value)}
               />
 
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: "10px",
-                  marginBottom: "10px",
-                }}
-              >
+              <div className="field-row">
                 <input
                   className="input"
                   placeholder="Company GSTIN"
@@ -1579,7 +1692,7 @@ export default function BillingConsole() {
                 />
               </div>
               <div
-                style={{ display: "flex", gap: "10px", marginBottom: "10px" }}
+                className="field-row"
               >
                 <input
                   className="input"
@@ -1610,42 +1723,66 @@ export default function BillingConsole() {
               />
 
               {/* LOGO & SIGNATURE UPLOADS */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-                <div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+              <div className="field-row" style={{ marginBottom: 0 }}>
+                <div className="img-upload-card">
+                  <div className="img-upload-head">
                     <span className="item-label" style={{ color: "#38bdf8", margin: 0 }}>Company Logo</span>
-                    <label style={{ fontSize: "10px", color: "#94a3b8", display: "flex", alignItems: "center", gap: "4px", cursor: "pointer", fontWeight: "bold" }}>
+                    <label className="img-upload-show">
                       <input type="checkbox" checked={formData.show_company_logo} onChange={(e) => handleCompanyChange("show_company_logo", e.target.checked)} style={{ accentColor: "#38bdf8" }} />
                       Show
                     </label>
                   </div>
-                  {formData.company_logo && (
-                    <img src={formData.company_logo} alt="Logo" style={{ height: "35px", marginBottom: "5px", display: "block", borderRadius: "4px" }} />
-                  )}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleLogoUpload}
-                    style={{ padding: "6px", fontSize: "11px", background: "rgba(30, 41, 59, 0.7)", width: "100%", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.1)", color: "white" }}
-                  />
+                  <div className="img-preview-box">
+                    {formData.company_logo ? (
+                      <img src={formData.company_logo} alt="Logo" />
+                    ) : (
+                      <span className="img-preview-empty">No logo</span>
+                    )}
+                  </div>
+                  <div className="img-upload-actions">
+                    <div className="file-input-wrap">
+                      <input
+                        ref={logoInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleLogoUpload}
+                        style={{ padding: "6px", fontSize: "11px", background: "rgba(30, 41, 59, 0.7)", width: "100%", boxSizing: "border-box", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.1)", color: "white" }}
+                      />
+                    </div>
+                    <button type="button" className="img-reset-btn" onClick={handleResetLogo} disabled={!formData.company_logo} title="Remove logo">
+                      Reset
+                    </button>
+                  </div>
                 </div>
-                <div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                <div className="img-upload-card">
+                  <div className="img-upload-head">
                     <span className="item-label" style={{ color: "#38bdf8", margin: 0 }}>Digital Signature</span>
-                    <label style={{ fontSize: "10px", color: "#94a3b8", display: "flex", alignItems: "center", gap: "4px", cursor: "pointer", fontWeight: "bold" }}>
+                    <label className="img-upload-show">
                       <input type="checkbox" checked={formData.show_digital_signature} onChange={(e) => handleCompanyChange("show_digital_signature", e.target.checked)} style={{ accentColor: "#38bdf8" }} />
                       Show
                     </label>
                   </div>
-                  {formData.digital_signature && (
-                    <img src={formData.digital_signature} alt="Signature" style={{ height: "35px", marginBottom: "5px", display: "block", borderRadius: "4px", background: "#fff" }} />
-                  )}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleSignatureUpload}
-                    style={{ padding: "6px", fontSize: "11px", background: "rgba(30, 41, 59, 0.7)", width: "100%", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.1)", color: "white" }}
-                  />
+                  <div className="img-preview-box" style={{ background: formData.digital_signature ? "#fff" : "rgba(15, 23, 42, 0.5)" }}>
+                    {formData.digital_signature ? (
+                      <img src={formData.digital_signature} alt="Signature" />
+                    ) : (
+                      <span className="img-preview-empty">No signature</span>
+                    )}
+                  </div>
+                  <div className="img-upload-actions">
+                    <div className="file-input-wrap">
+                      <input
+                        ref={signatureInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleSignatureUpload}
+                        style={{ padding: "6px", fontSize: "11px", background: "rgba(30, 41, 59, 0.7)", width: "100%", boxSizing: "border-box", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.1)", color: "white" }}
+                      />
+                    </div>
+                    <button type="button" className="img-reset-btn" onClick={handleResetSignature} disabled={!formData.digital_signature} title="Remove signature">
+                      Reset
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1663,7 +1800,7 @@ export default function BillingConsole() {
                 }
               />
               <div
-                style={{ display: "flex", gap: "10px", marginBottom: "10px" }}
+                className="field-row"
               >
                 <input
                   className="input"
@@ -1692,7 +1829,7 @@ export default function BillingConsole() {
                 }
               />
               <div
-                style={{ display: "flex", gap: "10px", marginBottom: "10px" }}
+                className="field-row"
               >
                 <input
                   className="input"
@@ -1728,7 +1865,7 @@ export default function BillingConsole() {
             <div className="input-group">
               <label>Invoice Reference & Metadata</label>
               <div
-                style={{ display: "flex", gap: "10px", marginBottom: "10px" }}
+                className="field-row"
               >
                 <input
                   className="input"
@@ -1788,7 +1925,7 @@ export default function BillingConsole() {
                   </select>
                 </div>
                 
-                {formData.payment_mode !== "FULL" && (
+                {formData.payment_mode !== "FULL" && !isPaidMarked && (
                   <div>
                     <span className="item-label" style={{ color: "#38bdf8" }}>Advance Paid (₹)</span>
                     <input
@@ -1803,7 +1940,7 @@ export default function BillingConsole() {
               </div>
 
               <div style={{ marginBottom: "10px" }}>
-                {formData.payment_mode === "FULL" ? (
+                {formData.payment_mode === "FULL" && !isPaidMarked ? (
                   <div>
                     <span className="item-label" style={{ color: "#38bdf8" }}>Due Date</span>
                     <input
@@ -1813,7 +1950,7 @@ export default function BillingConsole() {
                       onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
                     />
                   </div>
-                ) : (
+                ) : !isPaidMarked ? (
                   <div>
                     <span className="item-label" style={{ color: "#38bdf8" }}>EMI Start Date</span>
                     <input
@@ -1823,11 +1960,11 @@ export default function BillingConsole() {
                       onChange={(e) => setFormData({ ...formData, emi_start_date: e.target.value })}
                     />
                   </div>
-                )}
+                ) : null}
               </div>
 
               <div
-                style={{ display: "flex", gap: "10px", marginBottom: "10px" }}
+                className="field-row"
               >
                 <input
                   className="input"
@@ -1853,7 +1990,7 @@ export default function BillingConsole() {
                 />
               </div>
               <div
-                style={{ display: "flex", gap: "10px", marginBottom: "10px" }}
+                className="field-row"
               >
                 <input
                   className="input"
@@ -1877,7 +2014,7 @@ export default function BillingConsole() {
                 />
               </div>
               <div
-                style={{ display: "flex", gap: "10px", marginBottom: "10px" }}
+                className="field-row"
               >
                 <input
                   className="input"
@@ -1904,7 +2041,7 @@ export default function BillingConsole() {
                 />
               </div>
               <div
-                style={{ display: "flex", gap: "10px", marginBottom: "10px" }}
+                className="field-row"
               >
                 <input
                   className="input"
@@ -2290,7 +2427,7 @@ export default function BillingConsole() {
             <div className="input-group">
               <label>Bank & Additional Details</label>
               <div
-                style={{ display: "flex", gap: "10px", marginBottom: "10px" }}
+                className="field-row"
               >
                 <input
                   className="input"
@@ -2333,29 +2470,37 @@ export default function BillingConsole() {
               </div>
 
               <div style={{ marginTop: "10px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
-                  <span className="item-label" style={{ margin: 0 }}>Payment QR Code (Optional)</span>
-                  <label style={{ fontSize: "10px", color: "#94a3b8", display: "flex", alignItems: "center", gap: "4px", cursor: "pointer", fontWeight: "bold" }}>
-                    <input type="checkbox" checked={formData.show_qr_code} onChange={(e) => handleCompanyChange("show_qr_code", e.target.checked)} style={{ accentColor: "#38bdf8" }} />
-                    Show
-                  </label>
-                </div>
-                {formData.qr_code_image && (
-                  <div style={{ marginBottom: "8px" }}>
-                    <span style={{ fontSize: "10px", color: "#10b981", fontWeight: "bold" }}>✓ Saved QR Loaded</span>
-                    <img src={formData.qr_code_image} alt="QR" style={{ height: "40px", display: "block", marginTop: "4px", borderRadius: "4px" }} />
+                <div className="img-upload-card">
+                  <div className="img-upload-head">
+                    <span className="item-label" style={{ margin: 0 }}>Payment QR Code (Optional)</span>
+                    <label className="img-upload-show">
+                      <input type="checkbox" checked={formData.show_qr_code} onChange={(e) => handleCompanyChange("show_qr_code", e.target.checked)} style={{ accentColor: "#38bdf8" }} />
+                      Show
+                    </label>
                   </div>
-                )}
-                <input
-                  className="input"
-                  type="file"
-                  accept="image/*"
-                  onChange={handleQrUpload}
-                  style={{
-                    padding: "8px",
-                    background: "rgba(30, 41, 59, 0.7)",
-                  }}
-                />
+                  <div className="img-preview-box">
+                    {formData.qr_code_image ? (
+                      <img src={formData.qr_code_image} alt="QR" />
+                    ) : (
+                      <span className="img-preview-empty">No QR code</span>
+                    )}
+                  </div>
+                  <div className="img-upload-actions">
+                    <div className="file-input-wrap">
+                      <input
+                        ref={qrInputRef}
+                        className="input"
+                        type="file"
+                        accept="image/*"
+                        onChange={handleQrUpload}
+                        style={{ padding: "8px", background: "rgba(30, 41, 59, 0.7)", width: "100%", boxSizing: "border-box" }}
+                      />
+                    </div>
+                    <button type="button" className="img-reset-btn" onClick={handleResetQr} disabled={!formData.qr_code_image} title="Remove QR code">
+                      Reset
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -2388,9 +2533,14 @@ export default function BillingConsole() {
                   ₹{grandTotal.toFixed(2)}
                 </span>
               </div>
-              {Number(formData.advance_paid) > 0 && (
+              {Number(formData.advance_paid) > 0 && !isPaidMarked && (
                 <div className="summary-row advance" style={{ color: "#34d399", marginTop: "8px" }}>
                   <span>Advance Paid:</span> <span>- ₹{Number(formData.advance_paid).toFixed(2)}</span>
+                </div>
+              )}
+              {isPaidMarked && (
+                <div className="summary-row advance" style={{ color: "#10b981", marginTop: "8px" }}>
+                  <span>Paid Status:</span> <span>Fully Paid (₹{grandTotal.toFixed(2)})</span>
                 </div>
               )}
               <div className="summary-row balance" style={{ marginTop: "6px" }}>
@@ -2414,60 +2564,88 @@ export default function BillingConsole() {
             />
 
             <div className="history-list">
-              {filteredInvoices.map((inv) => (
-                <div
-                  key={inv.id}
-                  className="history-item"
-                  onClick={() => loadInvoiceData(inv)} 
-                >
-                  <div className="history-item-header">
-                    <strong
+              {filteredInvoices.map((inv) => {
+                const isCurrentActiveSelected = selectedInvoice && selectedInvoice.id === inv.id;
+
+                let badgeText = "";
+                let badgeBg = "";
+
+                if (isCurrentActiveSelected) {
+                  // Active selected invoice logic
+                  if (formData.doc_type === "QUOTATION") {
+                    badgeText = "QUOTE";
+                    badgeBg = "#fbbf24";
+                  } else if (isPaidMarked) {
+                    badgeText = "PAID";
+                    badgeBg = "#10b981";
+                  } else if (formData.payment_mode && formData.payment_mode.includes("INSTALLMENT")) {
+                    badgeText = "INSTALLMENT";
+                    badgeBg = "#8b5cf6";
+                  } else {
+                    badgeText = "DUE";
+                    badgeBg = "#ef4444";
+                  }
+                } else {
+                  // Unselected historical invoice logic completely mirroring the DB status
+                  if (inv.doc_type === "QUOTATION") {
+                    badgeText = "QUOTE";
+                    badgeBg = "#fbbf24";
+                  } else if (inv.payment_status === "PAID") {
+                    badgeText = "PAID";
+                    badgeBg = "#10b981";
+                  } else if (inv.payment_status === "INSTALLMENT" || (inv.payment_mode && inv.payment_mode.includes("INSTALLMENT"))) {
+                    badgeText = "INSTALLMENT";
+                    badgeBg = "#8b5cf6";
+                  } else {
+                    badgeText = "DUE";
+                    badgeBg = "#ef4444";
+                  }
+                }
+
+                return (
+                  <div
+                    key={inv.id}
+                    className="history-item"
+                    onClick={() => loadInvoiceData(inv)} 
+                  >
+                    <div className="history-item-header">
+                      <strong
+                        style={{
+                          color:
+                            inv.doc_type === "QUOTATION" ? "#fbbf24" : "#38bdf8",
+                        }}
+                      >
+                        {inv.invoice_number}
+                      </strong>
+                      <span
+                        className="status-badge"
+                        style={{ background: badgeBg }}
+                      >
+                        {badgeText}
+                      </span> 
+                    </div>
+                    <div
                       style={{
-                        color:
-                          inv.doc_type === "QUOTATION" ? "#fbbf24" : "#38bdf8",
+                        fontSize: "14px",
+                        marginBottom: "6px",
+                        fontWeight: "500",
                       }}
                     >
-                      {inv.invoice_number}
-                    </strong>
-                    <span
-                      className="status-badge"
+                      {inv.client_name}
+                    </div>
+                    <div
                       style={{
-                        background:
-                          inv.doc_type === "QUOTATION"
-                            ? "#fbbf24"
-                            : inv.payment_mode === "INSTALLMENT" || inv.payment_mode === "INSTALLMENT_3" || inv.payment_mode === "INSTALLMENT_4"
-                            ? "#8b5cf6"
-                            : getStatusColor(inv.payment_status),
+                        display: "flex",
+                        justifyContent: "space-between",
+                        fontSize: "12px",
+                        color: "#94a3b8",
                       }}
                     >
-                      {inv.doc_type === "QUOTATION"
-                        ? "QUOTE"
-                        : inv.payment_mode?.includes("INSTALLMENT")
-                        ? "INSTALLMENT"
-                        : inv.payment_status}
-                    </span> 
+                      <span>Total: ₹{inv.total_amount}</span>
+                    </div>
                   </div>
-                  <div
-                    style={{
-                      fontSize: "14px",
-                      marginBottom: "6px",
-                      fontWeight: "500",
-                    }}
-                  >
-                    {inv.client_name}
-                  </div>
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      fontSize: "12px",
-                      color: "#94a3b8",
-                    }}
-                  >
-                    <span>Total: ₹{inv.total_amount}</span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
               {filteredInvoices.length === 0 && (
                 <p style={{ color: "#64748b", fontSize: "13px" }}>
                   No documents found.
@@ -2503,6 +2681,28 @@ export default function BillingConsole() {
               <div
                 style={{ display: "flex", gap: "12px", alignItems: "center" }}
               >
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", background: "rgba(16, 185, 129, 0.15)", padding: "6px 12px", borderRadius: "8px", border: "1px solid rgba(16, 185, 129, 0.3)" }}>
+                  <input
+                    type="checkbox"
+                    id="markAsPaidCheckbox"
+                    checked={isPaidMarked}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      if (checked) {
+                        setPreMarkAdvance(Number(formData.advance_paid) || 0);
+                      } else {
+                        const newAdvance = formData.payment_mode === "FULL" ? 0 : preMarkAdvance;
+                        setFormData((prev) => ({ ...prev, advance_paid: newAdvance }));
+                      }
+                      setIsPaidMarked(checked);
+                    }}
+                    style={{ width: "16px", height: "16px", accentColor: "#10b981", cursor: "pointer" }}
+                  />
+                  <label htmlFor="markAsPaidCheckbox" style={{ color: "#34d399", fontWeight: "700", fontSize: "13px", cursor: "pointer" }}>
+                    Paid
+                  </label>
+                </div>
+
                 <select
                   className="input"
                   style={{
@@ -2536,7 +2736,16 @@ export default function BillingConsole() {
                     }
                     try {
                       const updatedInvoices = await handleSaveInvoiceData();
-                      clearDraftAndResetForm(updatedInvoices);
+                      
+                      if (selectedInvoice && selectedInvoice.id) {
+                         const newlySaved = updatedInvoices.find(inv => inv.id === selectedInvoice.id);
+                         if (newlySaved) {
+                             loadInvoiceData(newlySaved);
+                         }
+                      } else {
+                         clearDraftAndResetForm(updatedInvoices);
+                      }
+                      
                       alert("Invoice Saved Successfully!");
                     } catch(e) {
                       // Handled by handleSaveInvoiceData
@@ -2670,7 +2879,9 @@ export default function BillingConsole() {
                             <td>
                               <strong>Mode/Terms of Payment</strong>
                               <br />
-                              {formData.payment_mode}
+                              {isPaidMarked 
+                                ? "PAID" 
+                                : (formData.payment_mode && formData.payment_mode.includes("INSTALLMENT") ? "INSTALLMENT" : "DUE")}
                             </td>
                           </tr>
                           <tr>

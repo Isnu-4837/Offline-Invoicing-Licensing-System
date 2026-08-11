@@ -248,6 +248,17 @@
       msg.classList.add("show");
     }
 
+    // --- Cryptographic Checksum Logic ---
+    function calculateChecksum(baseStr) {
+      let total = 0;
+      for (let i = 0; i < baseStr.length; i++) {
+        total += baseStr.charCodeAt(i);
+      }
+      const char1 = chars[total % chars.length];
+      const char2 = chars[(total * 7) % chars.length];
+      return char1 + char2;
+    }
+
     function generateKey(){
       copyBtn.classList.remove("done");
       keyField.classList.add("active");
@@ -257,8 +268,17 @@
       void scan.offsetWidth;
       scan.classList.add("run");
 
+      // 1. Generate 12 random base characters
+      let baseKey = "";
+      for(let i = 0; i < 12; i++) {
+        baseKey += randChar();
+      }
+      
+      // 2. Calculate signature and combine
+      const signature = calculateChecksum(baseKey);
+      const finalRaw = baseKey + signature;
+
       // slot-machine style character cycling before settling
-      const finalRaw = Array.from({length:14}, randChar).join("");
       let ticks = 0;
       const totalTicks = 14;
       const interval = setInterval(() => {

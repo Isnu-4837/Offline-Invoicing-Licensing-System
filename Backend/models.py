@@ -11,6 +11,7 @@ class PaymentStatusEnum(str, enum.Enum):
     PAID = "PAID"
     PARTIAL = "PARTIAL"
     DUE = "DUE"
+    INSTALLMENT = "INSTALLMENT" # Added to perfectly align with UI requirements
 
 class PaymentModeEnum(str, enum.Enum):
     FULL = "FULL"
@@ -158,3 +159,11 @@ class Invoice(Base):
     next_due_date = Column(Date, nullable=True)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class SystemConfig(Base):
+    __tablename__ = "system_config"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    is_activated = Column(Boolean, default=False)
+    license_key = Column(String, nullable=True)
+    machine_id = Column(String, nullable=True)

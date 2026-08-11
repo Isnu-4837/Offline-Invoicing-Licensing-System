@@ -1,7 +1,7 @@
 {
   "name": "nextgen-invoice",
   "productName": "NextGen Invoice",
-  "version": "1.0.5", 
+  "version": "1.0.5",
   "description": "Professional Invoice and EMI Management System",
   "author": "Isnu Gupta",
   "main": "main.js",
@@ -14,6 +14,12 @@
     "productName": "Invoice Generator",
     "directories": {
       "output": "release"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": true
     },
     "win": {
       "target": [
@@ -34,8 +40,8 @@
         ]
       },
       {
-        "from": "../Backend/dist/invoice_backend.exe",
-        "to": "backend/invoice_backend.exe",
+        "from": "../Backend/dist/invoice_backend",
+        "to": "backend",
         "filter": [
           "**/*"
         ]
@@ -43,7 +49,10 @@
     ]
   },
   "devDependencies": {
-    "electron": "^28.0.0",
+    "electron": "^32.0.0",
     "electron-builder": "^24.13.3"
+  },
+  "allowScripts": {
+    "electron@32.3.3": true
   }
 }

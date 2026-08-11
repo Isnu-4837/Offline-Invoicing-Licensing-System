@@ -51,7 +51,6 @@ export default function Dashboard() {
   };
 
   const upcomingModules = [
-    // Add paths to the completed modules
     { icon: "🧾", title: "Purchase Invoices", desc: "Log bills from suppliers (buying raw materials, cameras, wire).", path: "/purchase-invoices" },
     { icon: "📒", title: "Vendor Ledger", desc: "Track money owed to suppliers vs. amounts already paid.", path: "/vendor-ledger" },
     { icon: "🛠️", title: "AMC Tracking", desc: "Alerts when a client's 1-year service warranty is about to expire.", path: "/amc-tracking" },
@@ -59,7 +58,8 @@ export default function Dashboard() {
     { icon: "📉", title: "Low Stock Alerts", desc: "Flashing dashboard alerts for items below defined minimum limits.", path: "/low-stock-alerts" },
     { icon: "📋", title: "Stock History", desc: "A ledger for each product showing when it was added, sold, or adjusted.", path: "/stock-history" },
     { icon: "💬", title: "WhatsApp Integration", desc: "Instantly send generated PDF Invoices to client WhatsApp numbers.", path: "/whatsapp-integration" },
-    { icon: "🤖", title: "Auto-Reminders", desc: "One-click bulk SMS/WhatsApp messages for clients with pending dues.", path: "/auto-reminders" }
+    { icon: "🤖", title: "Auto-Reminders", desc: "One-click bulk SMS/WhatsApp messages for clients with pending dues.", path: "/auto-reminders" },
+    { icon: "📊", title: "Sales Reports", desc: "Comprehensive yearly, monthly, and weekly sales metrics and CSV exports.", path: "/reports" }
   ];
 
   return (
@@ -106,11 +106,6 @@ export default function Dashboard() {
         @keyframes floatIcon {
           0%, 100% { transform: translateY(0); }
           50% { transform: translateY(-4px); }
-        }
-
-        @keyframes underlineGrow {
-          from { width: 0; }
-          to { width: 36px; }
         }
 
         .dashboard-container {
@@ -375,6 +370,7 @@ export default function Dashboard() {
         .erp-grid .erp-card:nth-child(6) { animation-delay: 0.60s; }
         .erp-grid .erp-card:nth-child(7) { animation-delay: 0.64s; }
         .erp-grid .erp-card:nth-child(8) { animation-delay: 0.68s; }
+        .erp-grid .erp-card:nth-child(9) { animation-delay: 0.72s; }
 
         .erp-card:hover {
           background: #1f1f1f;
@@ -583,14 +579,13 @@ export default function Dashboard() {
 
         {/* Upcoming ERP Modules */}
         <div className="erp-section-title">
-          ⚙️ Upcoming ERP Modules
+          ⚙️ ERP Modules & Reports
         </div>
        <div className="erp-grid">
           {upcomingModules.map((mod, idx) => (
             <div 
               className="erp-card" 
               key={idx} 
-              // Update this onClick handler:
               onClick={() => mod.path ? navigate(mod.path) : handleComingSoon(mod.title)}
             >
               <div className="erp-header">
@@ -598,7 +593,6 @@ export default function Dashboard() {
                   <span>{mod.icon}</span>
                   <span className="erp-title">{mod.title}</span>
                 </div>
-                {/* Optional: Hide the "SOON" badge if the module is active */}
                 {!mod.path && <span className="badge-soon">SOON</span>}
               </div>
               <p className="erp-desc">{mod.desc}</p>
@@ -622,14 +616,14 @@ export default function Dashboard() {
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <button className="close-btn" onClick={() => setShowReportModal(false)}>✕</button>
             <h2 style={{marginTop: 0, color: '#f4f4f5', fontSize: '1.25rem'}}>Export Reports</h2>
-            <p style={{color: '#94a3b8', fontSize: '13px', marginBottom: '20px'}}>Select a report type to download as CSV/JSON.</p>
+            <p style={{color: '#94a3b8', fontSize: '13px', marginBottom: '20px'}}>Select a report type to view or download.</p>
             
             <div style={{display: 'flex', flexDirection: 'column'}}>
+              <button className="report-option" onClick={() => { setShowReportModal(false); navigate("/reports"); }}>
+                📊 Yearly, Monthly & Weekly Sales Reports
+              </button>
               <button className="report-option" onClick={() => handleComingSoon("GSTR-1 Return Data")}>
                 GSTR-1 Return Data
-              </button>
-              <button className="report-option" onClick={() => handleComingSoon("Monthly Sales Report")}>
-                Monthly Sales Report
               </button>
               <button className="report-option" onClick={() => handleComingSoon("Pending Dues Aging")}>
                 Pending Dues Aging Report
