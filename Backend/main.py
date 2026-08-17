@@ -255,3 +255,11 @@ def activate_system(req: schemas.ActivationRequest, db: Session = Depends(get_db
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("message", "Activation failed."))
     return result
+
+@app.delete("/invoices/{invoice_id}")
+def delete_invoice_endpoint(invoice_id: int, db: Session = Depends(get_db)):
+    """Deletes an invoice permanently."""
+    result = crud.delete_invoice(db, invoice_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    return {"message": "Invoice deleted successfully"}

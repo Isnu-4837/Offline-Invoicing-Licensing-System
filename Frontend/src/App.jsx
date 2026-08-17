@@ -12,7 +12,7 @@ import WhatsAppIntegration from "./pages/WhatsAppIntegration";
 import AutoReminders from "./pages/AutoReminders";
 import VendorLedger from "./pages/VendorLedger";
 import StockHistory from "./pages/StockHistory";  
-import SalesReports from "./pages/SalesReports";     // <-- Fixed import name and file path
+import SalesReports from "./pages/SalesReports";     
 
 const ACTIVATION_STYLES = `
 @keyframes bg-drift {
@@ -110,11 +110,11 @@ const ACTIVATION_STYLES = `
   z-index: 2;
   background: linear-gradient(180deg, rgba(19,28,49,0.92), rgba(10,15,28,0.92));
   backdrop-filter: blur(14px);
-  padding: 44px 40px 36px;
+  padding: 44px 32px 36px;
   border-radius: 20px;
   border: 1px solid rgba(148,163,184,0.14);
-  width: 380px;
-  max-width: 90vw;
+  width: 480px; 
+  max-width: 95vw;
   text-align: center;
   box-shadow: 0 25px 60px rgba(0,0,0,0.65), 0 0 0 1px rgba(56,189,248,0.05);
   animation: card-in 0.6s cubic-bezier(0.16,1,0.3,1);
@@ -163,39 +163,53 @@ const ACTIVATION_STYLES = `
 }
 .aa-slots {
   display: flex;
-  gap: 8px;
+  align-items: center;
   justify-content: center;
-  margin-bottom: 6px;
+  gap: 6px;
+  margin: 0 0 6px;
+  padding: 14px 10px;
+  background: rgba(8,13,26,0.55);
+  border: 1px solid rgba(148,163,184,0.12);
+  border-radius: 14px;
 }
 .aa-slot-group {
   display: flex;
   gap: 3px;
 }
 .aa-slot {
-  width: 21px;
-  height: 40px;
+  width: 20px;
+  height: 38px;
+  flex: 0 0 auto;
   border-radius: 6px;
   background: rgba(15,23,42,0.9);
   border: 1px solid #2b3a56;
   color: #7dd3fc;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  line-height: 1;
+  box-sizing: border-box;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
   font-family: 'JetBrains Mono', 'Courier New', monospace;
 }
 .aa-slot.filled {
   border-color: #38bdf8;
+  background: rgba(56,189,248,0.08);
   box-shadow: 0 0 10px rgba(56,189,248,0.35);
   animation: slot-fill 0.22s ease-out;
 }
 .aa-slot-sep {
-  align-self: center;
+  flex: 0 0 auto;
+  width: 8px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: #475569;
+  font-size: 14px;
   font-weight: 700;
-  padding: 0 1px;
 }
 .aa-hidden-input {
   position: absolute;

@@ -399,3 +399,35 @@ def create_amc_contract(db: Session, data):
     db.commit()
     db.refresh(db_item)
     return db_item
+
+def delete_invoice(db: Session, invoice_id: int):
+    # Find the target invoice
+    db_invoice = db.query(models.Invoice).filter(models.Invoice.id == invoice_id).first()
+    
+    if not db_invoice:
+        return False
+        
+    # OPTIONAL: Restore inventory stock if this was a finalized invoice (not a quotation)
+    if db_invoice.doc_type == "INVOICE" and db_invoice.items:
+        try:
+            # Parse the items stored in the invoice
+            items = json.loads(db_invoice.items) if isinstance(db_invoice.items, str) else db_invoice.items
+            
+            for item in items:
+                # If the item has a linked product_id, restore the quantity to inventory
+                product_id = item.get("product_id") or item.get("id")
+                quantity = item.get("quantity", 1)
+                
+                if product_id:
+                    db_inventory = db.query(models.Inventory).filter(models.Inventory.id == product_id).first()
+                    if db_inventory:
+                        db_inventory.stock_quantity += quantity
+                        
+        except Exception as e:
+            print(f"Error restoring inventory during invoice deletion: {e}")
+
+    # Delete the invoice and commit changes
+    db.delete(db_invoice)
+    db.commit()
+    
+    return True

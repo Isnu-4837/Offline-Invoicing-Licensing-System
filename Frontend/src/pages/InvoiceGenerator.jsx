@@ -7,7 +7,7 @@ import html2canvas from "html2canvas";
 const COMPANY_CACHE_KEY = "billing_company_header_details";
 const DRAFT_STORAGE_KEY = "billing_console_autosave_draft";
 
-const LoadingButton = ({ onClick, children, className, style, title, type = "button" }) => {
+const LoadingButton = ({ onClick, children, className, style, title, type = "button", disabled }) => {
   const [isLoading, setIsLoading] = useState(false);
 
   const handleClick = async (e) => {
@@ -31,7 +31,7 @@ const LoadingButton = ({ onClick, children, className, style, title, type = "but
       className={`${className} ${isLoading ? "is-loading" : ""}`}
       style={{ ...style, position: "relative" }}
       onClick={handleClick}
-      disabled={isLoading}
+      disabled={isLoading || disabled}
       title={title}
     >
       {isLoading && <span className="loader-ring"></span>}
@@ -49,6 +49,7 @@ export default function BillingConsole() {
   const [preMarkAdvance, setPreMarkAdvance] = useState(0);
   const [showExitModal, setShowExitModal] = useState(false);
   const [pendingNavigationUrl, setPendingNavigationUrl] = useState(null);
+  const [invoiceToDelete, setInvoiceToDelete] = useState(null);
 
   const getInitialCompanyDetails = () => {
     try {
@@ -142,6 +143,7 @@ export default function BillingConsole() {
         hsn_code: "",
         price: 0,
         gst_rate: "18",
+        discount_percent: 0,
         subItems: [{ sn_code: "" }],
       },
     ]
@@ -252,7 +254,6 @@ export default function BillingConsole() {
 
       setSelectedInvoice(inv);
       
-      // FIX: Trust the database's explicit status entirely
       const isFullyPaid = inv.payment_status === "PAID";
       
       setIsPaidMarked(isFullyPaid);
@@ -348,13 +349,14 @@ export default function BillingConsole() {
               hsn_code: dbItem.hsn_code || "",
               price: Number(dbItem.price) || 0,
               gst_rate: Number(dbItem.gst_rate) || 18,
+              discount_percent: Number(dbItem.discount_percent) || 0,
               subItems: [{ sn_code: snCode }],
             });
           }
         });
         setItems(grouped);
       } else {
-        setItems([{ id: null, description: "", hsn_code: "", price: 0, gst_rate: 18, subItems: [{ sn_code: "" }] }]);
+        setItems([{ id: null, description: "", hsn_code: "", price: 0, gst_rate: 18, discount_percent: 0, subItems: [{ sn_code: "" }] }]);
       }
     } catch (error) {
       console.error("Failed to load invoice details", error);
@@ -429,16 +431,22 @@ export default function BillingConsole() {
   const calculateTotals = () => {
     let subtotal = 0;
     let tax = 0;
+    let totalDiscount = 0;
 
     items.forEach((item) => {
       const qty = item.subItems ? item.subItems.length : 0;
-      const itemTotal = (Number(item.price) || 0) * qty;
+      const baseItemTotal = (Number(item.price) || 0) * qty;
+      const discPct = Number(item.discount_percent) || 0;
+      const discAmt = baseItemTotal * (discPct / 100);
+      
+      const discountedItemTotal = baseItemTotal - discAmt;
 
-      subtotal += itemTotal;
+      totalDiscount += discAmt;
+      subtotal += discountedItemTotal;
 
       if (formData.is_gst_enabled) {
         const gstRate = Number(item.gst_rate) || 0;
-        tax += itemTotal * (gstRate / 100);
+        tax += discountedItemTotal * (gstRate / 100);
       }
     });
 
@@ -448,10 +456,10 @@ export default function BillingConsole() {
     const advance = isPaidMarked ? grandTotal : (Number(formData.advance_paid) || 0);
     const balance = isPaidMarked ? 0 : Math.max(0, grandTotal - advance);
 
-    return { subtotal, tax, installation, grandTotal, balance };
+    return { subtotal, tax, installation, grandTotal, balance, totalDiscount };
   };
 
-  const { subtotal, tax, installation, grandTotal, balance } = calculateTotals();
+  const { subtotal, tax, installation, grandTotal, balance, totalDiscount } = calculateTotals();
 
   const addItem = () => {
     setItems([
@@ -462,6 +470,7 @@ export default function BillingConsole() {
         hsn_code: "",
         price: 0,
         gst_rate: 18,
+        discount_percent: 0,
         subItems: [{ sn_code: "" }],
       },
     ]);
@@ -523,6 +532,7 @@ export default function BillingConsole() {
             quantity: 1,
             price: Number(item.price) || 0,
             gst_rate: Number(item.gst_rate) || 18,
+            discount_percent: Number(item.discount_percent) || 0,
             sn_code: sub.sn_code || "", 
           });
         });
@@ -676,9 +686,35 @@ export default function BillingConsole() {
       hsn_code: "",
       price: 0,
       gst_rate: 18,
+      discount_percent: 0,
       subItems: [{ sn_code: "" }],
     }]);
     setSelectedInvoice(null);
+  };
+
+  const handleDeleteInvoice = (invoiceId) => {
+    setInvoiceToDelete(invoiceId);
+  };
+
+  const confirmDeleteInvoice = async () => {
+    if (!invoiceToDelete) return;
+    
+    try {
+      await api.delete(`/invoices/${invoiceToDelete}`);
+      const updatedInvoices = await fetchInvoices();
+      await fetchInventory();
+      
+      if (selectedInvoice && selectedInvoice.id === invoiceToDelete) {
+        clearDraftAndResetForm(updatedInvoices);
+      }
+      
+      setInvoiceToDelete(null);
+    } catch (error) {
+      const errMsg = formatError(error);
+      console.error("Failed to delete invoice", error.response?.data || error.message);
+      alert(`Failed to delete invoice:\n${errMsg}`);
+      setInvoiceToDelete(null);
+    }
   };
 
   const downloadPDF = async () => {
@@ -1319,6 +1355,9 @@ export default function BillingConsole() {
           background: rgba(15, 23, 42, 0.5); 
           transition: all 0.2s ease; 
           animation: fadeInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
         }
         .history-item:hover { 
           border-color: #38bdf8; 
@@ -1326,17 +1365,35 @@ export default function BillingConsole() {
           transform: translateY(-3px) scale(1.01);
           box-shadow: 0 10px 26px -14px rgba(56, 189, 248, 0.5);
         }
+        .history-item-content { flex-grow: 1; margin-right: 15px; }
         .history-item-header { display: flex; justify-content: space-between; margin-bottom: 8px; align-items: center; }
         .status-badge { padding: 4px 10px; border-radius: 6px; font-size: 10px; font-weight: 800; color: white; text-transform: uppercase; letter-spacing: 0.5px; animation: badgeBreathe 2.6s ease-in-out infinite; display: inline-block; }
         
+        .history-delete-btn {
+          background: none;
+          border: none;
+          color: rgba(239, 68, 68, 0.6);
+          cursor: pointer;
+          font-size: 16px;
+          padding: 5px;
+          transition: color 0.2s ease, transform 0.2s ease;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .history-delete-btn:hover {
+          color: #ef4444;
+          transform: scale(1.1);
+        }
+
         .invoice-wrapper { 
-          overflow-x: auto; 
+          overflow-x: hidden; /* REMOVED THE SCROLLBAR */
           background: linear-gradient(145deg, #131c31 0%, #0e1626 100%); 
           padding: 25px; 
           border-radius: 20px; 
           display: flex; 
           flex-direction: column; 
-          align-items: center;
+          align-items: center; /* KEEP PERFECTLY CENTERED */
           border: 1px solid rgba(255, 255, 255, 0.08);
           box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.5);
           animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
@@ -1350,6 +1407,17 @@ export default function BillingConsole() {
           box-shadow: 0 25px 50px rgba(0,0,0,0.5);
           transform: translateY(-3px);
         }
+
+        /* AUTO SCALING SO THE A4 DOCUMENT ALWAYS FITS ON SCREEN */
+        @media (max-width: 1650px) { .ti-paper { zoom: 0.88; } }
+        @media (max-width: 1500px) { .ti-paper { zoom: 0.78; } }
+        @media (max-width: 1350px) { .ti-paper { zoom: 0.68; } }
+        @media (max-width: 1200px) { .ti-paper { zoom: 0.58; } }
+        @media (max-width: 1050px) {
+          .grid { grid-template-columns: 1fr; } 
+          .ti-paper { zoom: 0.85; } 
+        }
+        @media (max-width: 768px) { .ti-paper { zoom: 0.6; } }
 
         .ti-paper { 
           background: white; 
@@ -1535,6 +1603,34 @@ export default function BillingConsole() {
                 onClick={handleModalSaveAndExit}
               >
                 Save Invoice
+              </LoadingButton>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {invoiceToDelete && (
+        <div className="modal-overlay">
+          <div className="modal-box" style={{ border: "1px solid rgba(239, 68, 68, 0.3)" }}>
+            <div style={{ fontSize: "40px", marginBottom: "10px" }}>⚠️</div>
+            <h4 style={{ color: "#f87171" }}>Permanently Delete?</h4>
+            <p>
+              Are you absolutely sure you want to delete this document? 
+              This action cannot be undone and will affect inventory stock levels linked to it.
+            </p>
+            <div className="modal-actions" style={{ marginTop: "24px" }}>
+              <LoadingButton
+                className="btn btn-secondary"
+                onClick={() => setInvoiceToDelete(null)}
+              >
+                Cancel
+              </LoadingButton>
+              <LoadingButton
+                className="btn btn-danger"
+                style={{ background: "#ef4444", color: "white" }}
+                onClick={confirmDeleteInvoice}
+              >
+                Delete Permanently
               </LoadingButton>
             </div>
           </div>
@@ -2118,296 +2214,314 @@ export default function BillingConsole() {
                 </label>
               </div>
 
-              {items.map((item, i) => (
-                <div key={i} className="item-card">
-                  <div style={{ marginBottom: "12px" }}>
-                    <span className="item-label">
-                      Brand / Product Category Name
-                    </span>
-                    <input
-                      className="input"
-                      list="inventory-list"
-                      placeholder="E.g., CP Plus / Hikvision"
-                      value={item.description}
-                      onChange={(e) =>
-                        handleItemChange(i, "description", e.target.value)
-                      }
-                      autoComplete="off"
-                    />
-                  </div>
+              {items.map((item, i) => {
+                const qty = item.subItems ? item.subItems.length : 0;
+                const baseTotal = (Number(item.price) || 0) * qty;
+                const discAmt = baseTotal * ((Number(item.discount_percent) || 0) / 100);
+                const displayedTotal = baseTotal - discAmt;
 
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
-                      gap: "10px",
-                      marginBottom: "12px",
-                    }}
-                  >
-                    <div>
-                      <span className="item-label">Product HSN Number</span>
+                return (
+                  <div key={i} className="item-card">
+                    <div style={{ marginBottom: "12px" }}>
+                      <span className="item-label">
+                        Brand / Product Category Name
+                      </span>
                       <input
                         className="input"
-                        placeholder="HSN No."
-                        value={item.hsn_code}
+                        list="inventory-list"
+                        placeholder="E.g., CP Plus / Hikvision"
+                        value={item.description}
                         onChange={(e) =>
-                          handleItemChange(i, "hsn_code", e.target.value)
+                          handleItemChange(i, "description", e.target.value)
                         }
                         autoComplete="off"
                       />
                     </div>
-                    <div>
-                      <span className="item-label">Price (₹)</span>
-                      <input
-                        className="input"
-                        type="number"
-                        placeholder="0"
-                        value={item.price || ""}
-                        onChange={(e) =>
-                          handleItemChange(i, "price", e.target.value)
-                        }
-                      />
-                    </div>
-                  </div>
 
-                  <div
-                    style={{
-                      background: "rgba(15, 23, 42, 0.4)",
-                      padding: "12px",
-                      borderRadius: "10px",
-                      marginBottom: "10px",
-                      borderLeft: "3px solid #38bdf8",
-                    }}
-                  >
                     <div
                       style={{
                         display: "grid",
-                        gridTemplateColumns: "1fr auto",
+                        gridTemplateColumns: "1fr 1fr",
                         gap: "10px",
-                        alignItems: "end",
+                        marginBottom: "12px",
                       }}
                     >
                       <div>
-                        <span
-                          className="item-label"
-                          style={{ fontSize: "9px" }}
-                        >
-                          Individual Serial Number
-                        </span>
+                        <span className="item-label">Product HSN Number</span>
                         <input
                           className="input"
-                          style={{ padding: "8px 10px", fontSize: "13px" }}
-                          placeholder="Serial Number"
-                          value={item.subItems[0]?.sn_code || ""}
-                          onChange={(e) => {
-                            const updated = [...items];
-                            if(updated[i].subItems.length === 0) {
-                                updated[i].subItems.push({ sn_code: "" });
-                            }
-                            updated[i].subItems[0].sn_code = e.target.value;
-                            setItems(updated);
-                          }}
+                          placeholder="HSN No."
+                          value={item.hsn_code}
+                          onChange={(e) =>
+                            handleItemChange(i, "hsn_code", e.target.value)
+                          }
+                          autoComplete="off"
                         />
                       </div>
-                      <LoadingButton
-                        type="button"
-                        className="btn"
-                        style={{
-                          background: "rgba(16, 185, 129, 0.2)",
-                          color: "#34d399",
-                          border: "1px solid rgba(16, 185, 129, 0.3)",
-                          padding: "0",
-                          width: "38px",
-                          height: "38px",
-                          fontSize: "16px",
-                        }}
-                        title="Add item variant"
-                        onClick={() => {
-                          const updated = [...items];
-                          updated[i].subItems.push({ sn_code: "" });
-                          setItems(updated);
-                        }}
-                      >
-                        +
-                      </LoadingButton>
-                    </div>
-                  </div>
-
-                  {item.subItems &&
-                    item.subItems.slice(1).map((sub, sIndex) => {
-                      const actualIndex = sIndex + 1;
-                      return (
-                        <div
-                          key={actualIndex}
-                          style={{
-                            background: "rgba(15, 23, 42, 0.4)",
-                            padding: "12px",
-                            borderRadius: "10px",
-                            marginBottom: "10px",
-                            borderLeft: "3px solid #10b981",
-                          }}
-                        >
-                          <div
-                            style={{
-                              display: "grid",
-                              gridTemplateColumns: "1fr auto auto",
-                              gap: "10px",
-                              alignItems: "end",
-                            }}
-                          >
-                            <div>
-                              <span
-                                className="item-label"
-                                style={{ fontSize: "9px" }}
-                              >
-                                Individual Serial Number
-                              </span>
-                              <input
-                                className="input"
-                                style={{
-                                  padding: "8px 10px",
-                                  fontSize: "13px",
-                                }}
-                                placeholder="Serial Number"
-                                value={sub.sn_code}
-                                onChange={(e) => {
-                                  const updated = [...items];
-                                  updated[i].subItems[actualIndex].sn_code =
-                                    e.target.value;
-                                  setItems(updated);
-                                }}
-                              />
-                            </div>
-                            <LoadingButton
-                              type="button"
-                              className="btn btn-danger"
-                              style={{
-                                padding: "0",
-                                width: "38px",
-                                height: "38px",
-                              }}
-                              onClick={() => {
-                                const updated = [...items];
-                                updated[i].subItems.splice(actualIndex, 1);
-                                setItems(updated);
-                              }}
-                            >
-                              ✕
-                            </LoadingButton>
-                            <LoadingButton
-                              type="button"
-                              className="btn"
-                              style={{
-                                background: "rgba(16, 185, 129, 0.2)",
-                                color: "#34d399",
-                                border: "1px solid rgba(16, 185, 129, 0.3)",
-                                padding: "0",
-                                width: "38px",
-                                height: "38px",
-                                fontSize: "16px",
-                              }}
-                              title="Add item variant"
-                              onClick={() => {
-                                const updated = [...items];
-                                updated[i].subItems.splice(
-                                  actualIndex + 1,
-                                  0,
-                                  {
-                                    sn_code: "",
-                                  },
-                                );
-                                setItems(updated);
-                              }}
-                            >
-                              +
-                            </LoadingButton>
-                          </div>
-                        </div>
-                      );
-                    })}
-
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: formData.is_gst_enabled
-                        ? "1fr 1fr 1fr auto"
-                        : "1fr 1fr auto",
-                      gap: "12px",
-                      alignItems: "end",
-                      marginTop: "12px",
-                    }}
-                  >
-                    <div>
-                      <span className="item-label">Quantity (Auto)</span>
-                      <div
-                        style={{
-                          background: "rgba(15, 23, 42, 0.8)",
-                          border: "1px solid rgba(255, 255, 255, 0.1)",
-                          borderRadius: "10px",
-                          padding: "0 12px",
-                          height: "41px",
-                          color: "#38bdf8",
-                          fontSize: "13.5px",
-                          display: "flex",
-                          alignItems: "center",
-                          fontWeight: "bold",
-                        }}
-                      >
-                        {item.subItems ? item.subItems.length : 0} PCS
+                      <div>
+                        <span className="item-label">Price (₹)</span>
+                        <input
+                          className="input"
+                          type="number"
+                          placeholder="0"
+                          value={item.price || ""}
+                          onChange={(e) =>
+                            handleItemChange(i, "price", e.target.value)
+                          }
+                        />
                       </div>
                     </div>
 
-                    {formData.is_gst_enabled && (
+                    <div
+                      style={{
+                        background: "rgba(15, 23, 42, 0.4)",
+                        padding: "12px",
+                        borderRadius: "10px",
+                        marginBottom: "10px",
+                        borderLeft: "3px solid #38bdf8",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr auto",
+                          gap: "10px",
+                          alignItems: "end",
+                        }}
+                      >
+                        <div>
+                          <span
+                            className="item-label"
+                            style={{ fontSize: "9px" }}
+                          >
+                            Individual Serial Number
+                          </span>
+                          <input
+                            className="input"
+                            style={{ padding: "8px 10px", fontSize: "13px" }}
+                            placeholder="Serial Number"
+                            value={item.subItems[0]?.sn_code || ""}
+                            onChange={(e) => {
+                              const updated = [...items];
+                              if(updated[i].subItems.length === 0) {
+                                  updated[i].subItems.push({ sn_code: "" });
+                              }
+                              updated[i].subItems[0].sn_code = e.target.value;
+                              setItems(updated);
+                            }}
+                          />
+                        </div>
+                        <LoadingButton
+                          type="button"
+                          className="btn"
+                          style={{
+                            background: "rgba(16, 185, 129, 0.2)",
+                            color: "#34d399",
+                            border: "1px solid rgba(16, 185, 129, 0.3)",
+                            padding: "0",
+                            width: "38px",
+                            height: "38px",
+                            fontSize: "16px",
+                          }}
+                          title="Add item variant"
+                          onClick={() => {
+                            const updated = [...items];
+                            updated[i].subItems.push({ sn_code: "" });
+                            setItems(updated);
+                          }}
+                        >
+                          +
+                        </LoadingButton>
+                      </div>
+                    </div>
+
+                    {item.subItems &&
+                      item.subItems.slice(1).map((sub, sIndex) => {
+                        const actualIndex = sIndex + 1;
+                        return (
+                          <div
+                            key={actualIndex}
+                            style={{
+                              background: "rgba(15, 23, 42, 0.4)",
+                              padding: "12px",
+                              borderRadius: "10px",
+                              marginBottom: "10px",
+                              borderLeft: "3px solid #10b981",
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: "1fr auto auto",
+                                gap: "10px",
+                                alignItems: "end",
+                              }}
+                            >
+                              <div>
+                                <span
+                                  className="item-label"
+                                  style={{ fontSize: "9px" }}
+                                >
+                                  Individual Serial Number
+                                </span>
+                                <input
+                                  className="input"
+                                  style={{
+                                    padding: "8px 10px",
+                                    fontSize: "13px",
+                                  }}
+                                  placeholder="Serial Number"
+                                  value={sub.sn_code}
+                                  onChange={(e) => {
+                                    const updated = [...items];
+                                    updated[i].subItems[actualIndex].sn_code =
+                                      e.target.value;
+                                    setItems(updated);
+                                  }}
+                                />
+                              </div>
+                              <LoadingButton
+                                type="button"
+                                className="btn btn-danger"
+                                style={{
+                                  padding: "0",
+                                  width: "38px",
+                                  height: "38px",
+                                }}
+                                onClick={() => {
+                                  const updated = [...items];
+                                  updated[i].subItems.splice(actualIndex, 1);
+                                  setItems(updated);
+                                }}
+                              >
+                                ✕
+                              </LoadingButton>
+                              <LoadingButton
+                                type="button"
+                                className="btn"
+                                style={{
+                                  background: "rgba(16, 185, 129, 0.2)",
+                                  color: "#34d399",
+                                  border: "1px solid rgba(16, 185, 129, 0.3)",
+                                  padding: "0",
+                                  width: "38px",
+                                  height: "38px",
+                                  fontSize: "16px",
+                                }}
+                                title="Add item variant"
+                                onClick={() => {
+                                  const updated = [...items];
+                                  updated[i].subItems.splice(
+                                    actualIndex + 1,
+                                    0,
+                                    {
+                                      sn_code: "",
+                                    },
+                                  );
+                                  setItems(updated);
+                                }}
+                              >
+                                +
+                              </LoadingButton>
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: formData.is_gst_enabled
+                          ? "1fr 1fr 1fr 1fr auto"
+                          : "1fr 1fr 1fr auto",
+                        gap: "12px",
+                        alignItems: "end",
+                        marginTop: "12px",
+                      }}
+                    >
                       <div>
-                        <span className="item-label">GST %</span>
+                        <span className="item-label">Quantity (Auto)</span>
+                        <div
+                          style={{
+                            background: "rgba(15, 23, 42, 0.8)",
+                            border: "1px solid rgba(255, 255, 255, 0.1)",
+                            borderRadius: "10px",
+                            padding: "0 12px",
+                            height: "41px",
+                            color: "#38bdf8",
+                            fontSize: "13.5px",
+                            display: "flex",
+                            alignItems: "center",
+                            fontWeight: "bold",
+                          }}
+                        >
+                          {qty} PCS
+                        </div>
+                      </div>
+
+                      <div>
+                        <span className="item-label">Disc. %</span>
                         <input
                           className="input"
                           type="number"
                           min="0"
                           placeholder="0"
-                          value={item.gst_rate}
+                          value={item.discount_percent || ""}
                           onChange={(e) =>
-                            handleItemChange(i, "gst_rate", e.target.value)
+                            handleItemChange(i, "discount_percent", e.target.value)
                           }
-                          title="GST Rate %"
+                          title="Discount % per item"
                         />
                       </div>
-                    )}
 
-                    <div>
-                      <span className="item-label">Total Amount</span>
-                      <div
-                        style={{
-                          background: "rgba(15, 23, 42, 0.8)",
-                          border: "1px solid rgba(255, 255, 255, 0.1)",
-                          borderRadius: "10px",
-                          padding: "0 12px",
-                          height: "41px",
-                          color: "#38bdf8",
-                          fontSize: "13.5px",
-                          display: "flex",
-                          alignItems: "center",
-                          fontWeight: "700",
-                        }}
-                      >
-                        ₹{" "}
-                        {(
-                          (Number(item.price) || 0) *
-                          (item.subItems ? item.subItems.length : 0)
-                        ).toFixed(2)}
+                      {formData.is_gst_enabled && (
+                        <div>
+                          <span className="item-label">GST %</span>
+                          <input
+                            className="input"
+                            type="number"
+                            min="0"
+                            placeholder="0"
+                            value={item.gst_rate}
+                            onChange={(e) =>
+                              handleItemChange(i, "gst_rate", e.target.value)
+                            }
+                            title="GST Rate %"
+                          />
+                        </div>
+                      )}
+
+                      <div>
+                        <span className="item-label">Total Amount</span>
+                        <div
+                          style={{
+                            background: "rgba(15, 23, 42, 0.8)",
+                            border: "1px solid rgba(255, 255, 255, 0.1)",
+                            borderRadius: "10px",
+                            padding: "0 12px",
+                            height: "41px",
+                            color: "#38bdf8",
+                            fontSize: "13.5px",
+                            display: "flex",
+                            alignItems: "center",
+                            fontWeight: "700",
+                          }}
+                        >
+                          ₹ {displayedTotal.toFixed(2)}
+                        </div>
                       </div>
-                    </div>
 
-                    <LoadingButton
-                      className="btn btn-danger"
-                      style={{ height: "41px", padding: "0 14px" }}
-                      onClick={() => removeItem(i)}
-                    >
-                      ✕
-                    </LoadingButton>
+                      <LoadingButton
+                        className="btn btn-danger"
+                        style={{ height: "41px", padding: "0 14px" }}
+                        onClick={() => removeItem(i)}
+                      >
+                        ✕
+                      </LoadingButton>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
 
               <LoadingButton
                 className="btn btn-secondary"
@@ -2514,8 +2628,13 @@ export default function BillingConsole() {
               }}
             >
               <div className="summary-row">
-                <span>Subtotal:</span> <span>₹{subtotal.toFixed(2)}</span>
+                <span>Subtotal (After Discounts):</span> <span>₹{subtotal.toFixed(2)}</span>
               </div>
+              {totalDiscount > 0 && (
+                <div className="summary-row">
+                  <span>Total Discount Saved:</span> <span style={{ color: "#34d399" }}>- ₹{totalDiscount.toFixed(2)}</span>
+                </div>
+              )}
               {formData.is_gst_enabled && (
                 <div className="summary-row">
                   <span>Tax Estimate:</span> <span>₹{tax.toFixed(2)}</span>
@@ -2608,41 +2727,54 @@ export default function BillingConsole() {
                     className="history-item"
                     onClick={() => loadInvoiceData(inv)} 
                   >
-                    <div className="history-item-header">
-                      <strong
-                        style={{
-                          color:
-                            inv.doc_type === "QUOTATION" ? "#fbbf24" : "#38bdf8",
-                        }}
-                      >
-                        {inv.invoice_number}
-                      </strong>
-                      <span
-                        className="status-badge"
-                        style={{ background: badgeBg }}
-                      >
-                        {badgeText}
-                      </span> 
+                    <div className="history-item-content">
+                        <div className="history-item-header">
+                          <strong
+                            style={{
+                              color:
+                                inv.doc_type === "QUOTATION" ? "#fbbf24" : "#38bdf8",
+                            }}
+                          >
+                            {inv.invoice_number}
+                          </strong>
+                          <span
+                            className="status-badge"
+                            style={{ background: badgeBg }}
+                          >
+                            {badgeText}
+                          </span> 
+                        </div>
+                        <div
+                          style={{
+                            fontSize: "14px",
+                            marginBottom: "6px",
+                            fontWeight: "500",
+                          }}
+                        >
+                          {inv.client_name}
+                        </div>
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            fontSize: "12px",
+                            color: "#94a3b8",
+                          }}
+                        >
+                          <span>Total: ₹{inv.total_amount}</span>
+                        </div>
                     </div>
-                    <div
-                      style={{
-                        fontSize: "14px",
-                        marginBottom: "6px",
-                        fontWeight: "500",
+                    
+                    <button 
+                      className="history-delete-btn"
+                      title={`Delete ${inv.invoice_number}`}
+                      onClick={(e) => {
+                        e.stopPropagation(); // Prevents selection of the invoice
+                        handleDeleteInvoice(inv.id);
                       }}
                     >
-                      {inv.client_name}
-                    </div>
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        fontSize: "12px",
-                        color: "#94a3b8",
-                      }}
-                    >
-                      <span>Total: ₹{inv.total_amount}</span>
-                    </div>
+                      🗑️
+                    </button>
                   </div>
                 );
               })}
@@ -2658,10 +2790,13 @@ export default function BillingConsole() {
           <div className="invoice-wrapper">
             <div
               style={{
-                width: paperSize === "a5" ? "148mm" : "210mm",
+                width: "100%",
+                maxWidth: "800px",
                 display: "flex",
+                flexWrap: "wrap",
                 justifyContent: "space-between",
                 alignItems: "center",
+                gap: "10px",
                 marginBottom: "20px",
                 background: "rgba(15, 23, 42, 0.6)",
                 padding: "16px 20px",
@@ -2679,7 +2814,7 @@ export default function BillingConsole() {
                 </p>
               </div>
               <div
-                style={{ display: "flex", gap: "12px", alignItems: "center" }}
+                style={{ display: "flex", flexWrap: "wrap", gap: "12px", alignItems: "center" }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: "6px", background: "rgba(16, 185, 129, 0.15)", padding: "6px 12px", borderRadius: "8px", border: "1px solid rgba(16, 185, 129, 0.3)" }}>
                   <input
@@ -3007,7 +3142,18 @@ export default function BillingConsole() {
                             const qty = item.subItems
                               ? item.subItems.length
                               : 0;
-                            const itemTotal = (Number(item.price) || 0) * qty;
+
+                            const baseRate = Number(item.price) || 0;
+                            const discPct = Number(item.discount_percent) || 0;
+                            const baseItemTotal = baseRate * qty;
+                            const discAmt = baseItemTotal * (discPct / 100);
+                            const itemTotal = baseItemTotal - discAmt;
+
+                            const discountedRate = baseRate * (1 - discPct / 100);
+                            const gstRateNum = formData.is_gst_enabled
+                              ? Number(item.gst_rate) || 0
+                              : 0;
+                            const rateInclTax = discountedRate * (1 + gstRateNum / 100);
 
                             const serialNumbersText = item.subItems
                               ? item.subItems
@@ -3015,13 +3161,6 @@ export default function BillingConsole() {
                                   .filter(Boolean)
                                   .join(", ")
                               : "";
-
-                            const baseRate = Number(item.price) || 0;
-                            const gstRateNum = formData.is_gst_enabled
-                              ? Number(item.gst_rate) || 0
-                              : 0;
-                            const rateInclTax =
-                              baseRate * (1 + gstRateNum / 100);
 
                             return (
                               <tr key={`main-${index}-${idx}`}>
@@ -3055,7 +3194,9 @@ export default function BillingConsole() {
                                   {baseRate.toFixed(2)}
                                 </td>
                                 <td className="text-center">PCS</td>
-                                <td className="text-center">-</td>
+                                <td className="text-center">
+                                  {discPct > 0 ? `${discPct}%` : "-"}
+                                </td>
                                 <td className="text-right">
                                   <strong>{itemTotal.toFixed(2)}</strong>
                                 </td>
@@ -3252,7 +3393,7 @@ export default function BillingConsole() {
                                 ) : (
                                   <div
                                     style={{ width: "90px", height: "90px" }}
-                                  ></div>
+                                 ></div>
                                 )}
                                 <div style={{ textAlign: "right" }}>
                                   {formData.digital_signature && formData.show_digital_signature ? (
