@@ -759,10 +759,13 @@ export default function BillingConsole() {
     const pages = document.querySelectorAll(".invoice-page");
     if (pages.length === 0) return;
 
+    // THE FIX: Reset the CSS zoom scale before generating the PDF canvas 
+    // to prevent font metrics from miscalculating and causing squished/overlapping text.
     pages.forEach((page) => {
       page.style.boxShadow = "none";
       page.style.transform = "none";
       page.style.margin = "0";
+      page.style.zoom = "1"; // Force 100% zoom for accurate canvas rendering
     });
 
     try {
@@ -825,10 +828,12 @@ export default function BillingConsole() {
       console.error("Failed to save and download PDF", error.response?.data || error.message);
       alert(`Failed to save invoice before download:\n${errMsg}`);
     } finally {
+      // Revert the zoom styles so the UI preview goes back to normal on the screen
       pages.forEach((page) => {
         page.style.boxShadow = "";
         page.style.transform = "";
         page.style.margin = "";
+        page.style.zoom = ""; // Clear the override
       });
     }
   };
@@ -1068,98 +1073,6 @@ export default function BillingConsole() {
           50% { transform: translateY(-10px); }
         }
 
-        ::selection {
-          background: rgba(56, 189, 248, 0.35);
-          color: #ffffff;
-        }
-
-        *::-webkit-scrollbar {
-          width: 8px;
-          height: 8px;
-        }
-        *::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        *::-webkit-scrollbar-thumb {
-          background: rgba(148, 163, 184, 0.25);
-          border-radius: 10px;
-        }
-        *::-webkit-scrollbar-thumb:hover {
-          background: rgba(56, 189, 248, 0.45);
-        }
-
-        .app-topbar {
-          position: sticky;
-          top: 0;
-          z-index: 20;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          padding: 14px 28px;
-          background: rgba(9, 13, 22, 0.72);
-          backdrop-filter: blur(14px) saturate(140%);
-          -webkit-backdrop-filter: blur(14px) saturate(140%);
-          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-        }
-        .app-topbar-brand {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-        }
-        .app-topbar-mark {
-          width: 32px;
-          height: 32px;
-          border-radius: 9px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-weight: 800;
-          font-size: 14px;
-          color: #0f172a;
-          background: linear-gradient(135deg, #38bdf8 0%, #815af5 100%);
-          box-shadow: 0 4px 14px rgba(56, 189, 248, 0.35);
-        }
-        .app-topbar-name {
-          font-weight: 700;
-          font-size: 14.5px;
-          letter-spacing: -0.01em;
-          color: #f1f5f9;
-        }
-        .app-topbar-sub {
-          font-size: 11px;
-          color: #64748b;
-          font-weight: 600;
-        }
-        .app-topbar-pill {
-          font-size: 10.5px;
-          font-weight: 700;
-          letter-spacing: 0.4px;
-          text-transform: uppercase;
-          padding: 6px 12px;
-          border-radius: 999px;
-          color: #7dd3fc;
-          background: rgba(56, 189, 248, 0.1);
-          border: 1px solid rgba(56, 189, 248, 0.25);
-        }
-
-        select.input {
-          appearance: none;
-          -webkit-appearance: none;
-          background-image: linear-gradient(45deg, transparent 50%, #38bdf8 50%), linear-gradient(135deg, #38bdf8 50%, transparent 50%);
-          background-position: calc(100% - 18px) center, calc(100% - 13px) center;
-          background-size: 5px 5px, 5px 5px;
-          background-repeat: no-repeat;
-          padding-right: 34px;
-          cursor: pointer;
-        }
-
-        input[type="checkbox"] {
-          width: 16px;
-          height: 16px;
-          border-radius: 5px;
-          cursor: pointer;
-        }
-
         body { 
           background:
             radial-gradient(circle at 15% 20%, rgba(56, 189, 248, 0.10), transparent 40%),
@@ -1181,8 +1094,6 @@ export default function BillingConsole() {
           position: relative;
           z-index: 1;
         }
-
-        ::-webkit-scrollbar { width: 8px; height: 8px; }
 
         .grid { 
           display: grid; 
@@ -1797,17 +1708,6 @@ export default function BillingConsole() {
           </option>
         ))}
       </datalist>
-
-      <div className="app-topbar">
-        <div className="app-topbar-brand">
-          <div className="app-topbar-mark">B</div>
-          <div>
-            <div className="app-topbar-name">Billing Console</div>
-            <div className="app-topbar-sub">Invoices &amp; Quotations</div>
-          </div>
-        </div>
-        <div className="app-topbar-pill">{formData.doc_type === "QUOTATION" ? "Quotation Mode" : "Invoice Mode"}</div>
-      </div>
 
       <div
         className="container"
@@ -2839,7 +2739,6 @@ export default function BillingConsole() {
                 let badgeBg = "";
 
                 if (isCurrentActiveSelected) {
-                  // Active selected invoice logic
                   if (formData.doc_type === "QUOTATION") {
                     badgeText = "QUOTE";
                     badgeBg = "#fbbf24";
@@ -2854,7 +2753,6 @@ export default function BillingConsole() {
                     badgeBg = "#ef4444";
                   }
                 } else {
-                  // Unselected historical invoice logic completely mirroring the DB status
                   if (inv.doc_type === "QUOTATION") {
                     badgeText = "QUOTE";
                     badgeBg = "#fbbf24";
@@ -2918,7 +2816,7 @@ export default function BillingConsole() {
                       className="history-delete-btn"
                       title={`Delete ${inv.invoice_number}`}
                       onClick={(e) => {
-                        e.stopPropagation(); // Prevents selection of the invoice
+                        e.stopPropagation();
                         handleDeleteInvoice(inv.id);
                       }}
                     >
