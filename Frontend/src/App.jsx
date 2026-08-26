@@ -159,7 +159,7 @@ const ACTIVATION_STYLES = `
   color: #8b98b0;
   font-size: 13.5px;
   line-height: 1.5;
-  margin: 0 0 26px;
+  margin: 0 0 20px;
 }
 .aa-slots {
   display: flex;
@@ -307,6 +307,7 @@ const ACTIVATION_STYLES = `
 
 function AppActivationWrapper({ children }) {
   const [isActivated, setIsActivated] = useState(null);
+  const [machineId, setMachineId] = useState("");
   const [inputKey, setInputKey] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -317,15 +318,24 @@ function AppActivationWrapper({ children }) {
   }, []);
 
   const checkStatus = async () => {
+    // 1. Fetch Machine ID safely first
+    try {
+      const mRes = await api.get("/system/machine-id");
+      setMachineId(mRes.data.machine_id);
+    } catch (err) {
+      console.error("Failed to fetch machine ID", err);
+    }
+
+    // 2. Then fetch Activation Status
     try {
       const res = await api.get("/system/status");
       setIsActivated(res.data.is_activated);
     } catch (e) {
       console.error("Failed to verify license status", e);
-      setIsActivated(false);
+      setIsActivated(false); // If it fails, assume it's locked
     }
   };
-
+  
   const handleKeyChange = (e) => {
     let rawValue = e.target.value.replace(/[^A-Z0-9]/ig, "").toUpperCase();
     rawValue = rawValue.substring(0, 14);
@@ -343,10 +353,7 @@ function AppActivationWrapper({ children }) {
     e.preventDefault();
     setSubmitting(true);
     try {
-      // Strip the hyphens to send the raw 14-character key
       const rawKey = inputKey.replace(/-/g, "");
-      
-      // Send rawKey instead of inputKey
       const res = await api.post("/system/activate", { key: rawKey });
       
       if (res.data.success) {
@@ -355,8 +362,6 @@ function AppActivationWrapper({ children }) {
         setErrorMsg(res.data.message);
       }
     } catch (e) {
-      // Extract the server's error detail if available (HTTP 400), 
-      // otherwise fall back to the generic connection error message.
       const serverMsg = e?.response?.data?.detail;
       setErrorMsg(serverMsg || "Activation failed. Please check your connection.");
     } finally {
@@ -364,7 +369,6 @@ function AppActivationWrapper({ children }) {
     }
   };
 
-  // Renders one group of key slots (e.g. 4 chars) with per-character boxes
   const renderSlotGroup = (start, length, sepAfter) => {
     const raw = inputKey.replace(/-/g, "");
     const chars = raw.substring(start, start + length).split("");
@@ -398,7 +402,7 @@ function AppActivationWrapper({ children }) {
               <path d="M8 11V7a4 4 0 0 1 8 0v4" stroke="#38bdf8" strokeWidth="1.6" />
             </svg>
           </div>
-          <div className="aa-loading-text">VERIFYING LICENSE</div>
+          <div className="aa-loading-text">VERIFYING HARDWARE BINDING</div>
           <div className="aa-dots">
             <div className="aa-dot" />
             <div className="aa-dot" />
@@ -429,7 +433,11 @@ function AppActivationWrapper({ children }) {
           </div>
 
           <h2 className="aa-title">Application Locked</h2>
-          <p className="aa-subtitle">Enter your activation key to unlock the workspace.</p>
+          <p className="aa-subtitle">Share your Machine ID to get an activation key.</p>
+
+          <div style={{ background: 'rgba(56,189,248,0.1)', padding: '10px', borderRadius: '8px', marginBottom: '22px', border: '1px dashed rgba(56,189,248,0.3)', color: '#7dd3fc', fontSize: '14px', letterSpacing: '0.5px' }}>
+            Machine ID: <strong style={{ letterSpacing: '1px' }}>{machineId}</strong>
+          </div>
 
           <form onSubmit={handleActivate}>
             <div
@@ -472,7 +480,11 @@ function AppActivationWrapper({ children }) {
     );
   }
 
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+    </>
+  );
 }
 
 function App() {

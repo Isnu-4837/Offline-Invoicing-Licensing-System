@@ -113,5 +113,16 @@ class InvoiceCreate(BaseModel):
     
     is_gst_enabled: bool = True
     
-    
     payment_status: Optional[str] = None
+
+
+# --- UPDATED RESPONSE SCHEMA ---
+class InvoiceResponse(InvoiceCreate): 
+    id: int
+    total_amount: Optional[float] = 0.0
+    remaining_amount: Optional[float] = 0.0
+    created_at: Optional[str] = None
+
+    class Config:
+        orm_mode = True
+        from_attributes = True

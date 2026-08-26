@@ -1,8 +1,11 @@
 import tkinter as tk
 import random
 import string
+import hashlib
 
 CHARS = string.ascii_uppercase + string.digits
+# This MUST match the APP_SECRET in your FastAPI main.py!
+APP_SECRET = "ERP_SECURE_2026"
 
 BG = "#060912"
 PANEL = "#0f1830"
@@ -47,7 +50,7 @@ def _slot_tick():
         _tick += 1
         root.after(45, _slot_tick)
     else:
-        _set_status("Generated successfully! ✓", MINT)
+        _set_status("Hardware Key Generated! ✓", MINT)
         _pulse_border(6)
 
 
@@ -74,8 +77,18 @@ def _calculate_checksum(base_str):
 def generate_key():
     global _final_key, _tick
     
-    # 1. Generate 12 random base characters
-    base_key = "".join(random.choices(CHARS, k=12))
+    # Grab the Machine ID typed into the box
+    machine_id = machine_entry.get().strip().upper()
+    if not machine_id:
+        _set_status("Error: Enter Client's Machine ID!", "#fca5a5")
+        return
+        
+    # Generate the cryptographic hardware hash
+    raw_string = machine_id + APP_SECRET
+    hash_hex = hashlib.sha256(raw_string.encode()).hexdigest().upper()
+    
+    # 1. Use 12 characters from the hardware hash as the base
+    base_key = hash_hex[:12]
     
     # 2. Calculate the 2-character signature
     signature = _calculate_checksum(base_key)
@@ -84,10 +97,10 @@ def generate_key():
     _final_key = base_key + signature
     
     _tick = 0
-    _set_status("Generating…", CYAN)
-    gen_btn.config(text="Generating…")
+    _set_status("Encrypting…", CYAN)
+    gen_btn.config(text="Encrypting…")
     root.after(0, _slot_tick)
-    root.after(760, lambda: gen_btn.config(text="Generate New Key 🔑"))
+    root.after(760, lambda: gen_btn.config(text="Generate Hardware Key 🔑"))
 
 
 def copy_to_clipboard():
@@ -112,7 +125,8 @@ def _on_leave(btn, base_color):
 # ---------- Window setup ----------
 root = tk.Tk()
 root.title("License Key Generator")
-root.geometry("420x340")
+# Height increased from 340 to 420 to accommodate the new input field
+root.geometry("420x420") 
 root.config(bg=BG)
 root.resizable(False, False)
 root.eval('tk::PlaceWindow . center')
@@ -127,14 +141,20 @@ card.pack(padx=22, pady=22, fill="both", expand=True)
 badge = tk.Frame(card, bg="#0d2a22")
 badge.pack(pady=(22, 6))
 tk.Label(badge, text="●", font=("Arial", 8), fg=MINT, bg="#0d2a22").pack(side="left", padx=(10, 4), pady=4)
-tk.Label(badge, text="VAULT READY", font=("Arial", 9, "bold"), fg=MINT, bg="#0d2a22").pack(side="left", padx=(0, 10), pady=4)
+tk.Label(badge, text="HARDWARE BINDING", font=("Arial", 9, "bold"), fg=MINT, bg="#0d2a22").pack(side="left", padx=(0, 10), pady=4)
 
 title_label = tk.Label(card, text="Key Generator", font=("Segoe UI", 18, "bold"), fg=CYAN_LIGHT, bg=PANEL)
-title_label.pack(pady=(10, 2))
+title_label.pack(pady=(5, 2))
 
 subtitle = tk.Label(card, text="Generate secure activation keys for clients.",
                      font=("Segoe UI", 9), fg=INK_DIM, bg=PANEL)
-subtitle.pack(pady=(0, 18))
+subtitle.pack(pady=(0, 10))
+
+# --- NEW MACHINE ID INPUT SECTION ---
+tk.Label(card, text="Client Machine ID:", font=("Segoe UI", 9, "bold"), fg=INK_DIM, bg=PANEL).pack(pady=(5, 2))
+machine_entry = tk.Entry(card, font=("Consolas", 11), justify="center", fg=INK, bg=FIELD_BG, relief="flat", insertbackground=CYAN)
+machine_entry.pack(ipady=6, fill="x", padx=30, pady=(0, 15))
+# ------------------------------------
 
 key_frame = tk.Frame(card, bg=FIELD_BG, highlightbackground=PANEL_BORDER_DEFAULT,
                       highlightthickness=1, bd=0)
@@ -145,7 +165,7 @@ key_entry = tk.Entry(key_frame, font=("Consolas", 16, "bold"), justify="center",
                       readonlybackground=FIELD_BG, state="readonly")
 key_entry.pack(ipady=10, fill="x")
 
-gen_btn = tk.Button(card, text="Generate New Key 🔑", font=("Segoe UI", 10, "bold"),
+gen_btn = tk.Button(card, text="Generate Hardware Key 🔑", font=("Segoe UI", 10, "bold"),
                      bg=CYAN, fg="#04101f", relief="flat", activebackground=CYAN_LIGHT,
                      cursor="hand2", command=generate_key)
 gen_btn.pack(fill="x", padx=30, pady=(0, 8), ipady=8)

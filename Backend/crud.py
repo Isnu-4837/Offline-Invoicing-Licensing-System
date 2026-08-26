@@ -431,3 +431,56 @@ def delete_invoice(db: Session, invoice_id: int):
     db.commit()
     
     return True
+
+def get_dashboard_statistics(db: Session):
+    invoices = db.query(models.Invoice).all()
+    
+    total_sales = 0
+    total_collected = 0
+    total_due = 0
+    invoice_count = 0
+    
+    for inv in invoices:
+        # We only count actual invoices in sales stats, not quotations
+        if inv.doc_type == "QUOTATION":
+            continue
+            
+        invoice_count += 1
+        
+        # Safely convert to float
+        amount = float(inv.total_amount or 0)
+        advance = float(inv.advance_paid or 0)
+        
+        # Calculate exactly how much was collected vs due
+        if inv.payment_status == "PAID":
+            collected = amount
+            due = 0
+        else:
+            collected = advance
+            due = max(0, amount - advance)
+            
+        total_sales += amount
+        total_collected += collected
+        total_due += due
+
+    return {
+        "total_sales": round(total_sales, 2),
+        "total_collected": round(total_collected, 2),
+        "total_due": round(total_due, 2),
+        "total_invoices": invoice_count
+    }
+
+def get_invoices(db: Session, skip: int = 0, limit: int = 100):
+    invoices = db.query(models.Invoice).offset(skip).limit(limit).all()
+    
+    # Inject remaining_amount dynamically so the frontend reports work!
+    for inv in invoices:
+        amount = float(inv.total_amount or 0)
+        advance = float(inv.advance_paid or 0)
+        
+        if inv.payment_status == "PAID":
+            inv.remaining_amount = 0.0
+        else:
+            inv.remaining_amount = max(0.0, amount - advance)
+            
+    return invoices

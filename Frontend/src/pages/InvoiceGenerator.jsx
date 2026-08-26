@@ -142,8 +142,9 @@ export default function BillingConsole() {
         description: "",
         hsn_code: "",
         price: 0,
-        gst_rate: "18",
+        gst_rate: 18,
         discount_percent: 0,
+        manual_quantity: null,
         subItems: [{ sn_code: "" }],
       },
     ]
@@ -176,6 +177,17 @@ export default function BillingConsole() {
     return `${prefix}${maxNum + 1}`;
   };
 
+  const getEffectiveQty = (item) => {
+    if (item.manual_quantity !== undefined && item.manual_quantity !== null && item.manual_quantity !== "") {
+      return Number(item.manual_quantity) || 0;
+    }
+    return item.subItems ? item.subItems.length : 0;
+  };
+
+  const hasManualQuantity = (item) => {
+    return item.manual_quantity !== undefined && item.manual_quantity !== null && item.manual_quantity !== "";
+  };
+
   useEffect(() => {
     fetchInvoices();
     fetchInventory();
@@ -202,7 +214,7 @@ export default function BillingConsole() {
   const fetchInvoices = async () => {
     try {
       const res = await api.get("/invoices");
-      const invoices = res.data;
+      const invoices = res.data || [];
       setInvoiceList(invoices);
       
       setFormData((prev) => {
@@ -220,6 +232,7 @@ export default function BillingConsole() {
       return invoices;
     } catch (error) {
       console.error("Failed to fetch invoices", error);
+      setInvoiceList([]);
       return [];
     }
   };
@@ -227,9 +240,10 @@ export default function BillingConsole() {
   const fetchInventory = async () => {
     try {
       const res = await api.get("/inventory");
-      setInventoryList(res.data);
+      setInventoryList(res.data || []);
     } catch (error) {
       console.error("Failed to fetch inventory", error);
+      setInventoryList([]);
     }
   };
 
@@ -342,6 +356,9 @@ export default function BillingConsole() {
 
           if (group) {
             group.subItems.push({ sn_code: snCode });
+            if (dbItem.quantity !== undefined && dbItem.quantity > group.subItems.length) {
+              group.manual_quantity = dbItem.quantity;
+            }
           } else {
             grouped.push({
               id: dbItem.product_id || dbItem.id || null,
@@ -350,13 +367,14 @@ export default function BillingConsole() {
               price: Number(dbItem.price) || 0,
               gst_rate: Number(dbItem.gst_rate) || 18,
               discount_percent: Number(dbItem.discount_percent) || 0,
+              manual_quantity: dbItem.quantity !== undefined ? dbItem.quantity : null,
               subItems: [{ sn_code: snCode }],
             });
           }
         });
         setItems(grouped);
       } else {
-        setItems([{ id: null, description: "", hsn_code: "", price: 0, gst_rate: 18, discount_percent: 0, subItems: [{ sn_code: "" }] }]);
+        setItems([{ id: null, description: "", hsn_code: "", price: 0, gst_rate: 18, discount_percent: 0, manual_quantity: null, subItems: [{ sn_code: "" }] }]);
       }
     } catch (error) {
       console.error("Failed to load invoice details", error);
@@ -434,7 +452,7 @@ export default function BillingConsole() {
     let totalDiscount = 0;
 
     items.forEach((item) => {
-      const qty = item.subItems ? item.subItems.length : 0;
+      const qty = getEffectiveQty(item);
       const baseItemTotal = (Number(item.price) || 0) * qty;
       const discPct = Number(item.discount_percent) || 0;
       const discAmt = baseItemTotal * (discPct / 100);
@@ -471,6 +489,7 @@ export default function BillingConsole() {
         price: 0,
         gst_rate: 18,
         discount_percent: 0,
+        manual_quantity: null,
         subItems: [{ sn_code: "" }],
       },
     ]);
@@ -494,6 +513,8 @@ export default function BillingConsole() {
       } else {
         updated[i].id = null;
       }
+    } else if (field === "manual_quantity") {
+      updated[i][field] = value === "" ? null : value;
     } else {
       updated[i][field] =
         value === "" ? "" : field === "hsn_code" ? value : Number(value);
@@ -521,8 +542,11 @@ export default function BillingConsole() {
   const compilePayload = () => {
     let flattenedItems = [];
     items.forEach((item) => {
+      const effectiveQty = getEffectiveQty(item);
+
       if (item.subItems && item.subItems.length > 0) {
-        item.subItems.forEach((sub) => {
+        for (let q = 0; q < effectiveQty; q++) {
+          const sub = item.subItems[q] || { sn_code: "" };
           flattenedItems.push({
             product_id: item.id || null,
             description: item.description || "General Item",
@@ -535,7 +559,20 @@ export default function BillingConsole() {
             discount_percent: Number(item.discount_percent) || 0,
             sn_code: sub.sn_code || "", 
           });
-        });
+        }
+      } else {
+        for (let q = 0; q < effectiveQty; q++) {
+          flattenedItems.push({
+            product_id: item.id || null,
+            description: item.description || "General Item",
+            hsn_code: item.hsn_code ? item.hsn_code.trim() : "",
+            quantity: 1,
+            price: Number(item.price) || 0,
+            gst_rate: Number(item.gst_rate) || 18,
+            discount_percent: Number(item.discount_percent) || 0,
+            sn_code: "",
+          });
+        }
       }
     });
 
@@ -687,6 +724,7 @@ export default function BillingConsole() {
       price: 0,
       gst_rate: 18,
       discount_percent: 0,
+      manual_quantity: null,
       subItems: [{ sn_code: "" }],
     }]);
     setSelectedInvoice(null);
@@ -1030,6 +1068,98 @@ export default function BillingConsole() {
           50% { transform: translateY(-10px); }
         }
 
+        ::selection {
+          background: rgba(56, 189, 248, 0.35);
+          color: #ffffff;
+        }
+
+        *::-webkit-scrollbar {
+          width: 8px;
+          height: 8px;
+        }
+        *::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        *::-webkit-scrollbar-thumb {
+          background: rgba(148, 163, 184, 0.25);
+          border-radius: 10px;
+        }
+        *::-webkit-scrollbar-thumb:hover {
+          background: rgba(56, 189, 248, 0.45);
+        }
+
+        .app-topbar {
+          position: sticky;
+          top: 0;
+          z-index: 20;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 14px 28px;
+          background: rgba(9, 13, 22, 0.72);
+          backdrop-filter: blur(14px) saturate(140%);
+          -webkit-backdrop-filter: blur(14px) saturate(140%);
+          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .app-topbar-brand {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        .app-topbar-mark {
+          width: 32px;
+          height: 32px;
+          border-radius: 9px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-weight: 800;
+          font-size: 14px;
+          color: #0f172a;
+          background: linear-gradient(135deg, #38bdf8 0%, #815af5 100%);
+          box-shadow: 0 4px 14px rgba(56, 189, 248, 0.35);
+        }
+        .app-topbar-name {
+          font-weight: 700;
+          font-size: 14.5px;
+          letter-spacing: -0.01em;
+          color: #f1f5f9;
+        }
+        .app-topbar-sub {
+          font-size: 11px;
+          color: #64748b;
+          font-weight: 600;
+        }
+        .app-topbar-pill {
+          font-size: 10.5px;
+          font-weight: 700;
+          letter-spacing: 0.4px;
+          text-transform: uppercase;
+          padding: 6px 12px;
+          border-radius: 999px;
+          color: #7dd3fc;
+          background: rgba(56, 189, 248, 0.1);
+          border: 1px solid rgba(56, 189, 248, 0.25);
+        }
+
+        select.input {
+          appearance: none;
+          -webkit-appearance: none;
+          background-image: linear-gradient(45deg, transparent 50%, #38bdf8 50%), linear-gradient(135deg, #38bdf8 50%, transparent 50%);
+          background-position: calc(100% - 18px) center, calc(100% - 13px) center;
+          background-size: 5px 5px, 5px 5px;
+          background-repeat: no-repeat;
+          padding-right: 34px;
+          cursor: pointer;
+        }
+
+        input[type="checkbox"] {
+          width: 16px;
+          height: 16px;
+          border-radius: 5px;
+          cursor: pointer;
+        }
+
         body { 
           background:
             radial-gradient(circle at 15% 20%, rgba(56, 189, 248, 0.10), transparent 40%),
@@ -1051,6 +1181,8 @@ export default function BillingConsole() {
           position: relative;
           z-index: 1;
         }
+
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
 
         .grid { 
           display: grid; 
@@ -1387,13 +1519,13 @@ export default function BillingConsole() {
         }
 
         .invoice-wrapper { 
-          overflow-x: hidden; /* REMOVED THE SCROLLBAR */
+          overflow-x: hidden;
           background: linear-gradient(145deg, #131c31 0%, #0e1626 100%); 
           padding: 25px; 
           border-radius: 20px; 
           display: flex; 
           flex-direction: column; 
-          align-items: center; /* KEEP PERFECTLY CENTERED */
+          align-items: center;
           border: 1px solid rgba(255, 255, 255, 0.08);
           box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.5);
           animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
@@ -1408,7 +1540,6 @@ export default function BillingConsole() {
           transform: translateY(-3px);
         }
 
-        /* AUTO SCALING SO THE A4 DOCUMENT ALWAYS FITS ON SCREEN */
         @media (max-width: 1650px) { .ti-paper { zoom: 0.88; } }
         @media (max-width: 1500px) { .ti-paper { zoom: 0.78; } }
         @media (max-width: 1350px) { .ti-paper { zoom: 0.68; } }
@@ -1666,6 +1797,17 @@ export default function BillingConsole() {
           </option>
         ))}
       </datalist>
+
+      <div className="app-topbar">
+        <div className="app-topbar-brand">
+          <div className="app-topbar-mark">B</div>
+          <div>
+            <div className="app-topbar-name">Billing Console</div>
+            <div className="app-topbar-sub">Invoices &amp; Quotations</div>
+          </div>
+        </div>
+        <div className="app-topbar-pill">{formData.doc_type === "QUOTATION" ? "Quotation Mode" : "Invoice Mode"}</div>
+      </div>
 
       <div
         className="container"
@@ -2215,7 +2357,9 @@ export default function BillingConsole() {
               </div>
 
               {items.map((item, i) => {
-                const qty = item.subItems ? item.subItems.length : 0;
+                const autoQty = item.subItems ? item.subItems.length : 0;
+                const qty = getEffectiveQty(item);
+
                 const baseTotal = (Number(item.price) || 0) * qty;
                 const discAmt = baseTotal * ((Number(item.discount_percent) || 0) / 100);
                 const displayedTotal = baseTotal - discAmt;
@@ -2440,23 +2584,28 @@ export default function BillingConsole() {
                       }}
                     >
                       <div>
-                        <span className="item-label">Quantity (Auto)</span>
-                        <div
-                          style={{
-                            background: "rgba(15, 23, 42, 0.8)",
-                            border: "1px solid rgba(255, 255, 255, 0.1)",
-                            borderRadius: "10px",
-                            padding: "0 12px",
-                            height: "41px",
-                            color: "#38bdf8",
-                            fontSize: "13.5px",
-                            display: "flex",
-                            alignItems: "center",
-                            fontWeight: "bold",
-                          }}
-                        >
-                          {qty} PCS
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                          <span className="item-label" style={{ margin: 0 }}>Quantity</span>
+                          {hasManualQuantity(item) && (
+                            <button
+                              type="button"
+                              style={{ background: "none", border: "none", color: "#38bdf8", fontSize: "9px", cursor: "pointer", padding: 0, textDecoration: "underline" }}
+                              onClick={() => handleItemChange(i, "manual_quantity", null)}
+                              title="Reset to auto count from serial numbers"
+                            >
+                              Reset Auto ({autoQty})
+                            </button>
+                          )}
                         </div>
+                        <input
+                          className="input"
+                          type="number"
+                          min="1"
+                          placeholder={autoQty || 1}
+                          value={hasManualQuantity(item) ? item.manual_quantity : ""}
+                          onChange={(e) => handleItemChange(i, "manual_quantity", e.target.value)}
+                          title="Override quantity manually or leave blank for auto count"
+                        />
                       </div>
 
                       <div>
@@ -3139,9 +3288,7 @@ export default function BillingConsole() {
 
                             const { item, index } = row;
 
-                            const qty = item.subItems
-                              ? item.subItems.length
-                              : 0;
+                            const qty = getEffectiveQty(item);
 
                             const baseRate = Number(item.price) || 0;
                             const discPct = Number(item.discount_percent) || 0;
@@ -3293,13 +3440,7 @@ export default function BillingConsole() {
                               <td></td>
                               <td className="text-center">
                                 <strong>
-                                  {items.reduce(
-                                    (acc, it) =>
-                                      acc +
-                                      (it.subItems ? it.subItems.length : 0),
-                                    0,
-                                  )}{" "}
-                                  PCS
+                                  {items.reduce((acc, it) => acc + getEffectiveQty(it), 0)} PCS
                                 </strong>
                               </td>
                               <td></td>

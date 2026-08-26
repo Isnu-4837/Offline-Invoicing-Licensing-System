@@ -1,6 +1,6 @@
 {
-  "name": "nextgen-invoice",
-  "productName": "NextGen Invoice",
+  "name": "invoice-generator",
+  "productName": "Invoice Generator",
   "version": "1.0.5",
   "description": "Professional Invoice and EMI Management System",
   "author": "Isnu Gupta",
@@ -10,7 +10,7 @@
     "build": "electron-builder --win"
   },
   "build": {
-    "appId": "com.nextgentechstack.invoice",
+    "appId": "com.invoice",
     "productName": "Invoice Generator",
     "directories": {
       "output": "release"

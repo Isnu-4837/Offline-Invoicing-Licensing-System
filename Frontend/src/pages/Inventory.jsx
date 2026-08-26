@@ -1,12 +1,14 @@
-import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom"; // Import useNavigate
-import api from "../api/axios"; // Adjust path if needed
+import React, { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom"; 
+import api from "../api/axios"; 
 
 export default function InventoryManager() {
-  const navigate = useNavigate(); // Initialize navigate
+  const navigate = useNavigate(); 
   const [inventoryList, setInventoryList] = useState([]);
   const [search, setSearch] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [isScanning, setIsScanning] = useState(false);
+  const fileInputRef = useRef(null);
 
   // Form State for new product
   const [formData, setFormData] = useState({
@@ -79,7 +81,6 @@ export default function InventoryManager() {
     }
   };
 
-  // NEW FUNCTION: Handle Product Deletion
   const handleDeleteProduct = async (id) => {
     if (!window.confirm("Are you sure you want to delete this product? This action cannot be undone.")) {
       return;
@@ -87,10 +88,56 @@ export default function InventoryManager() {
 
     try {
       await api.delete(`/inventory/${id}`);
-      fetchInventory(); // Refresh the list after successful deletion
+      fetchInventory(); 
     } catch (error) {
       console.error("Failed to delete product", error);
       alert("Failed to delete product. Ensure you don't have existing invoices linked to it.");
+    }
+  };
+
+  // Smart Receipt OCR Upload Handler
+  const handleReceiptUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setIsScanning(true);
+    const uploadData = new FormData();
+    uploadData.append("file", file);
+
+    try {
+      const res = await api.post("/ocr/receipt", uploadData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+
+      if (res.data.success && res.data.items) {
+        let addedCount = 0;
+        
+        for (const item of res.data.items) {
+          try {
+            await api.post("/inventory", {
+              product_name: item.description || "Scanned Item",
+              hsn_code: "",
+              unit: "Pcs",
+              purchase_price: Number(item.price || 0),
+              selling_price: Number(item.price || 0) * 1.2,
+              stock_quantity: Number(item.quantity || 1),
+              gst_rate: Number(item.gst_rate || 18),
+            });
+            addedCount++;
+          } catch (err) {
+            console.error("Failed to add scanned item to DB", err);
+          }
+        }
+        
+        alert(`Successfully extracted and added ${addedCount} items to inventory! Please review their selling prices.`);
+        fetchInventory();
+      }
+    } catch (error) {
+      console.error("OCR Failed:", error);
+      alert("Failed to scan receipt. Please ensure the image is clear and the backend AI is configured.");
+    } finally {
+      setIsScanning(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
@@ -130,11 +177,6 @@ export default function InventoryManager() {
           to { opacity: 1; transform: translateY(0); }
         }
 
-        @keyframes shimmer {
-          0% { background-position: -200% 0; }
-          100% { background-position: 200% 0; }
-        }
-
         @keyframes pulseLow {
           0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.25); }
           50% { box-shadow: 0 0 0 5px rgba(239, 68, 68, 0); }
@@ -150,13 +192,26 @@ export default function InventoryManager() {
           padding: 40px 20px; 
           animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
         }
-        .grid { display: grid; grid-template-columns: 350px 1fr; gap: 30px; align-items: start; }
+        
+        .grid { 
+          display: grid; 
+          grid-template-columns: 350px 1fr; 
+          gap: 30px; 
+          align-items: start; 
+        }
+
+        @media (max-width: 1024px) {
+          .grid { 
+            grid-template-columns: 1fr; 
+          }
+        }
         
         .panel { 
           background: #1a1a1a; 
           padding: 25px; 
           border-radius: 12px; 
           border: 1px solid rgba(255, 255, 255, 0.06);
+          box-sizing: border-box;
           transition: border-color 0.3s ease, box-shadow 0.3s ease;
           animation: fadeInUp 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
         }
@@ -218,18 +273,59 @@ export default function InventoryManager() {
         .btn-success { background: #10b981; color: white; padding: 8px 12px; font-size: 12px;}
         .btn-success:hover { background: #059669; transform: translateY(-1px); box-shadow: 0 6px 16px -6px rgba(16, 185, 129, 0.5); }
         
-        /* Delete Button Style */
         .btn-danger { background: rgba(239, 68, 68, 0.12); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.25); padding: 8px 12px; font-size: 12px; }
         .btn-danger:hover { background: #ef4444; color: white; transform: translateY(-1px) scale(1.03); box-shadow: 0 8px 18px -6px rgba(239, 68, 68, 0.55); }
 
-        /* Table Styles */
+        .ai-upload-box {
+          background: linear-gradient(145deg, rgba(15, 23, 42, 0.8), rgba(30, 41, 59, 0.8));
+          border: 1px dashed rgba(56, 189, 248, 0.4);
+          border-radius: 12px;
+          padding: 18px 16px;
+          text-align: center;
+          margin-bottom: 22px;
+          transition: all 0.3s ease;
+          box-sizing: border-box;
+          width: 100%;
+        }
+        .ai-upload-box:hover {
+          border-color: #38bdf8;
+          box-shadow: 0 8px 24px -10px rgba(56, 189, 248, 0.3);
+        }
+
+        .ai-upload-btn {
+          background: #0284c7;
+          color: #ffffff;
+          width: 100%;
+          padding: 10px 12px;
+          border-radius: 8px;
+          border: none;
+          font-weight: 700;
+          font-size: 13.5px;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          box-sizing: border-box;
+          transition: background 0.2s ease, transform 0.15s ease;
+        }
+        .ai-upload-btn:hover:not(:disabled) {
+          background: #0ea5e9;
+          transform: translateY(-1px);
+        }
+        .ai-upload-btn:disabled {
+          background: #475569;
+          color: #cbd5e1;
+          cursor: not-allowed;
+        }
+
         .inv-table-container { 
           background: #141414; 
           border-radius: 10px; 
           border: 1px solid rgba(255, 255, 255, 0.06); 
-          overflow: hidden; 
+          overflow-x: auto; 
         }
-        .inv-table { width: 100%; border-collapse: collapse; }
+        .inv-table { width: 100%; border-collapse: collapse; min-width: 700px; }
         .inv-table th { 
           background: #1c1c1c; 
           color: #94a3b8; 
@@ -268,10 +364,12 @@ export default function InventoryManager() {
         }
 
         .top-bar {
-          display:flex; 
-          justify-content:space-between; 
-          align-items:center; 
-          margin-bottom:30px;
+          display: flex; 
+          justify-content: space-between; 
+          align-items: center; 
+          margin-bottom: 30px;
+          flex-wrap: wrap;
+          gap: 15px;
           animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
         }
 
@@ -316,9 +414,9 @@ export default function InventoryManager() {
         }
 
         .empty-state {
-          text-align:center; 
-          color:#64748b; 
-          padding:40px;
+          text-align: center; 
+          color: #64748b; 
+          padding: 40px;
           animation: fadeIn 0.5s ease both;
         }
         .empty-state .empty-icon { font-size: 28px; margin-bottom: 8px; display: block; }
@@ -326,7 +424,6 @@ export default function InventoryManager() {
 
       <div className="container">
         <div className="top-bar">
-            
             <div style={{display:'flex', alignItems:'center', gap: '15px'}}>
               <button 
                 className="btn btn-secondary back-btn" 
@@ -350,9 +447,37 @@ export default function InventoryManager() {
           
           {/* LEFT PANEL: Add Product */}
           <div className="panel">
-            <h3>Add New Product</h3>
-            <form onSubmit={handleAddProduct}>
+            <div className="ai-upload-box">
+              <h4 style={{ color: "#38bdf8", marginTop: 0, marginBottom: "6px", fontSize: "15px" }}>🤖 Auto-Fill with AI</h4>
+              <p style={{ fontSize: "11.5px", color: "#94a3b8", marginBottom: "14px", lineHeight: "1.4" }}>
+                Upload a photo of a vendor bill to instantly extract and stock items.
+              </p>
               
+              <input 
+                type="file" 
+                accept="image/*" 
+                ref={fileInputRef}
+                onChange={handleReceiptUpload} 
+                style={{ display: "none" }} 
+                id="receipt-upload"
+              />
+              
+              <label 
+                htmlFor="receipt-upload" 
+                className="ai-upload-btn"
+                style={{ cursor: isScanning ? "not-allowed" : "pointer" }}
+              >
+                {isScanning ? <><span className="spinner"></span> Scanning Bill...</> : "📸 Upload Receipt Image"}
+              </label>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", marginBottom: "20px" }}>
+              <hr style={{ flex: 1, borderColor: "rgba(255,255,255,0.05)" }} />
+              <span style={{ padding: "0 10px", fontSize: "12px", color: "#64748b", fontWeight: 700 }}>OR MANUAL ENTRY</span>
+              <hr style={{ flex: 1, borderColor: "rgba(255,255,255,0.05)" }} />
+            </div>
+
+            <form onSubmit={handleAddProduct}>
               <div className="input-group">
                 <label>Product Name *</label>
                 <input required className="input" placeholder="e.g., CCTV Camera HD" value={formData.product_name} onChange={(e) => setFormData({ ...formData, product_name: e.target.value })} />
@@ -397,7 +522,7 @@ export default function InventoryManager() {
 
           {/* RIGHT PANEL: Inventory List */}
           <div className="panel">
-            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'20px'}}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'20px', flexWrap:'wrap', gap:'15px'}}>
                 <h3 style={{margin:0}}>Current Stock</h3>
                 <input className="input" style={{width: '250px'}} placeholder="Search products or HSN..." value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
@@ -436,7 +561,7 @@ export default function InventoryManager() {
                           {item.stock_quantity} {item.unit}
                         </span>
                       </td>
-                      <td style={{display:'flex', gap:'8px'}}>
+                      <td style={{display:'flex', gap:'8px', alignItems:'center'}}>
                         <input 
                             type="number" 
                             className="input" 
@@ -460,7 +585,6 @@ export default function InventoryManager() {
                   ))}
                   {!isLoading && filteredInventory.length === 0 && (
                       <tr>
-                          {/* Updated colSpan to 8 to match the new number of columns */}
                           <td colSpan="8">
                             <div className="empty-state">
                               <span className="empty-icon">📦</span>

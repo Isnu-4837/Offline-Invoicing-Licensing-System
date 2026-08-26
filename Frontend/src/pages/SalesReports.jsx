@@ -94,10 +94,7 @@ export default function SalesReports() {
       if (timeframe === "yearly") {
         return d.getFullYear() === Number(selectedYear);
       }
-      if (timeframe === "monthly") {
-        return d.getFullYear() === Number(selectedYear) && d.getMonth() + 1 === Number(selectedMonth);
-      }
-      if (timeframe === "weekly") {
+      if (timeframe === "monthly" || timeframe === "weekly") {
         return d.getFullYear() === Number(selectedYear) && d.getMonth() + 1 === Number(selectedMonth);
       }
       return true;
@@ -180,7 +177,6 @@ export default function SalesReports() {
   }, [timeframe, selectedYear, selectedMonth, invoices.length]);
 
   // --- PDF EXPORT ---
-  // Requires: npm install jspdf jspdf-autotable
   const exportToPDF = () => {
     setExporting(true);
     try {

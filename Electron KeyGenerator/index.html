@@ -101,7 +101,7 @@
     0%{ opacity:0; transform: translateY(-6px); }
     10%{ opacity:1; }
     90%{ opacity:1; }
-    100%{ opacity:0; transform: translateY(300px); }
+    100%{ opacity:0; transform: translateY(400px); }
   }
 
   .eyebrow{
@@ -129,7 +129,36 @@
     background: linear-gradient(120deg, var(--cyan-2), var(--violet));
     -webkit-background-clip:text; background-clip:text; color:transparent;
   }
-  p.sub{ color:var(--ink-dim); font-size:13px; margin:0 0 26px; line-height:1.5; }
+  p.sub{ color:var(--ink-dim); font-size:13px; margin:0 0 22px; line-height:1.5; }
+
+  /* --- NEW MACHINE ID INPUT STYLES --- */
+  .input-label {
+    text-align: left;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--ink-dim);
+    margin-bottom: 6px;
+    margin-left: 2px;
+  }
+  #machineIdField {
+    width: 100%;
+    padding: 12px 14px;
+    background: rgba(11, 18, 32, 0.6);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    border-radius: 10px;
+    font-family: ui-monospace, "SFMono-Regular", "Cascadia Code", Consolas, monospace;
+    font-size: 14px;
+    outline: none;
+    text-align: center;
+    transition: border-color .25s, box-shadow .25s;
+    margin-bottom: 18px;
+  }
+  #machineIdField:focus {
+    border-color: var(--violet);
+    box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.15);
+  }
+  #machineIdField::placeholder{ color:#3c4a68; }
 
   .key-wrap{ position:relative; margin-bottom:18px; }
 
@@ -184,7 +213,7 @@
   @keyframes rip{ to{ transform:scale(3); opacity:0; } }
 
   .msg{
-    min-height:16px; font-size:12px; color:var(--mint);
+    min-height:16px; font-size:12px;
     display:flex; align-items:center; justify-content:center; gap:6px;
     opacity:0; transform: translateY(4px);
     transition: opacity .3s, transform .3s;
@@ -210,23 +239,31 @@
     <div class="scan" id="scan"></div>
     <span class="bracket-l"></span><span class="bracket-r"></span>
 
-    <div class="eyebrow"><span class="dot"></span>Vault Ready</div>
+    <div class="eyebrow"><span class="dot"></span>Hardware Binding</div>
 
     <h2>Key Generator</h2>
     <p class="sub">Generate secure activation keys for clients.</p>
+
+    <!-- NEW MACHINE ID SECTION -->
+    <div class="input-label">Client Machine ID:</div>
+    <input type="text" id="machineIdField" placeholder="e.g. MACHINE-F4-46-37...">
 
     <div class="key-wrap">
       <input type="text" id="keyField" readonly placeholder="XXXX · XXXX · XXXX · XX">
     </div>
 
-    <button class="btn btn-gen" id="genBtn">Generate New Key 🔑</button>
+    <button class="btn btn-gen" id="genBtn">Generate Hardware Key 🔑</button>
     <button class="btn btn-copy" id="copyBtn">Copy to Clipboard</button>
 
     <div class="msg" id="msg"></div>
   </div>
 
   <script>
+    // Import ipcRenderer to communicate securely with main.js
+    const { ipcRenderer } = require("electron");
+    
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    const machineIdField = document.getElementById("machineIdField");
     const keyField = document.getElementById("keyField");
     const genBtn = document.getElementById("genBtn");
     const copyBtn = document.getElementById("copyBtn");
@@ -241,25 +278,24 @@
 
     function setMsg(text, iconOk){
       msg.innerHTML = iconOk
-        ? `<svg class="check" viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.2 12L13 4.5" stroke="#34d399" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>${text}`
-        : text;
+        ? `<svg class="check" viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.2 12L13 4.5" stroke="#34d399" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span style="color: var(--mint);">${text}</span>`
+        : `<span style="color: #fca5a5;">⚠ ${text}</span>`;
       msg.classList.remove("show");
       void msg.offsetWidth; // restart transition
       msg.classList.add("show");
     }
 
-    // --- Cryptographic Checksum Logic ---
-    function calculateChecksum(baseStr) {
-      let total = 0;
-      for (let i = 0; i < baseStr.length; i++) {
-        total += baseStr.charCodeAt(i);
+    async function generateKey(){
+      const machineId = machineIdField.value.trim();
+      
+      // Validation Check
+      if (!machineId) {
+        setMsg("Enter Client's Machine ID!", false);
+        machineIdField.style.borderColor = "#fca5a5";
+        return;
       }
-      const char1 = chars[total % chars.length];
-      const char2 = chars[(total * 7) % chars.length];
-      return char1 + char2;
-    }
-
-    function generateKey(){
+      machineIdField.style.borderColor = "";
+      
       copyBtn.classList.remove("done");
       keyField.classList.add("active");
 
@@ -268,15 +304,16 @@
       void scan.offsetWidth;
       scan.classList.add("run");
 
-      // 1. Generate 12 random base characters
-      let baseKey = "";
-      for(let i = 0; i < 12; i++) {
-        baseKey += randChar();
-      }
+      // Request hardware hash from Electron Backend (main.js)
+      const response = await ipcRenderer.invoke("generate-key", machineId);
       
-      // 2. Calculate signature and combine
-      const signature = calculateChecksum(baseKey);
-      const finalRaw = baseKey + signature;
+      if (!response.success) {
+        setMsg(response.message, false);
+        return;
+      }
+
+      // Format response for the slot machine animation
+      const finalRaw = response.key.replace(/-/g, "");
 
       // slot-machine style character cycling before settling
       let ticks = 0;
@@ -290,15 +327,15 @@
         ticks++;
         if (ticks > totalTicks){
           clearInterval(interval);
-          keyField.value = format(finalRaw);
-          setMsg("Key generated successfully!", true);
+          keyField.value = response.key; // Set exact final key
+          setMsg("Hardware Key generated successfully!", true);
         }
       }, 45);
     }
 
     function copyKey(e){
       if (!keyField.value || keyField.value.includes("X")) return;
-      navigator.clipboard.writeText(keyField.value.replace(/-/g, "-"));
+      navigator.clipboard.writeText(keyField.value.replace(/-/g, "-")); // Remove center dots if copied
 
       // ripple effect from click position
       const rect = copyBtn.getBoundingClientRect();
