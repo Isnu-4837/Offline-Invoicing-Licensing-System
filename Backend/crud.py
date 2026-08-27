@@ -1,3 +1,4 @@
+import json
 from sqlalchemy.orm import Session
 from sqlalchemy import extract
 from datetime import datetime, timedelta
@@ -8,7 +9,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 def get_sales_report_data(db: Session, timeframe: str, year: int, month: int = None):
     query = db.query(models.Invoice).filter(
-        models.Invoice.doc_type == models.DocTypeEnum.INVOICE,
+        models.Invoice.doc_type == "INVOICE",
         extract('year', models.Invoice.created_at) == year
     )
     if timeframe == "monthly" and month:
@@ -46,10 +47,7 @@ def check_application_status(db: Session):
     return {"is_activated": config.is_activated}
 
 def activate_application(db: Session, key: str):
-    # Clean the incoming key to ensure it matches our raw 14-char format
     clean_key = key.replace("-", "").strip().upper()
-    
-    # Update regex to check for exactly 14 alphanumeric characters
     key_pattern = r"^[A-Z0-9]{14}$"
     if not re.match(key_pattern, clean_key):
         return {"success": False, "message": "Invalid key format."}
@@ -66,26 +64,28 @@ def activate_application(db: Session, key: str):
     config.license_key = clean_key
     config.machine_id = get_machine_id()
     db.commit()
-    
     return {"success": True, "message": "Application activated and bound to this machine!"}
 
 def generate_invoice_number(db: Session, doc_type):
-    prefix = "INV" if doc_type == models.DocTypeEnum.INVOICE else "QUO"
+    doc_str = str(doc_type).split('.')[-1].upper()
+    prefix = "QUO" if doc_str == "QUOTATION" else "INV"
+    
     while True:
         candidate = f"{prefix}-{datetime.now().year}-{uuid.uuid4().hex[:6].upper()}"
         exists = db.query(models.Invoice).filter(models.Invoice.invoice_number == candidate).first()
         if not exists:
             return candidate
 
+# FIXED: Now strictly returns a String to prevent SQLAlchemy Date crashes
 def parse_date_safe(date_val):
     if not date_val:
         return None
-    if isinstance(date_val, str) and date_val.strip():
-        try:
-            return datetime.strptime(date_val.strip(), "%Y-%m-%d").date()
-        except ValueError:
-            return None
-    return date_val if hasattr(date_val, 'year') else None
+    if isinstance(date_val, str):
+        val = date_val.strip()
+        return val if val else None
+    if hasattr(date_val, 'strftime'):
+        return date_val.strftime("%Y-%m-%d")
+    return str(date_val)
 
 def create_invoice(db: Session, data):
     client_name = getattr(data, 'client_name', None)
@@ -112,23 +112,20 @@ def create_invoice(db: Session, data):
     grand_total = round(total_taxable + cgst + sgst + igst + installation_charges, 2)
     remaining_balance = round(grand_total - advance_paid, 2)
 
-    # FIX: Prioritize explicit status passed from frontend UI 
     frontend_status = getattr(data, 'payment_status', None)
 
-    # --- DETERMINING PAYMENT STATUS & BALANCE ---
-    if data.doc_type == models.DocTypeEnum.QUOTATION:
-        payment_status = "QUOTATION"
-    elif frontend_status == "PAID":
-        payment_status = models.PaymentStatusEnum.PAID
+    if frontend_status == "PAID":
+        payment_status = "PAID"
         remaining_balance = 0.0
-    elif frontend_status in ["DUE", "INSTALLMENT", "PARTIAL"]:
-        payment_status = frontend_status
-        if advance_paid > 0 and frontend_status != "INSTALLMENT":
-            payment_status = "PARTIAL"
+    elif frontend_status == "INSTALLMENT":
+        payment_status = "INSTALLMENT"
+    elif frontend_status == "PARTIAL":
+        payment_status = "PARTIAL"
+    elif frontend_status == "DUE":
+        payment_status = "DUE"
     else:
-        # Fallback for older code blocks if any
         if grand_total > 0 and (remaining_balance <= 0.0 or advance_paid >= grand_total):
-            payment_status = models.PaymentStatusEnum.PAID
+            payment_status = "PAID"
             remaining_balance = 0.0
         else:
             mode_str = str(data.payment_mode or "").upper()
@@ -139,12 +136,23 @@ def create_invoice(db: Session, data):
 
     installment_schedule = []
     next_due_date = None
+    
+    mode_str_check = str(data.payment_mode or "").upper()
 
-    if data.payment_mode == models.PaymentModeEnum.FULL or not data.payment_mode or payment_status == models.PaymentStatusEnum.PAID:
+    if mode_str_check == "FULL" or not data.payment_mode or payment_status == "PAID":
         next_due_date = parse_date_safe(getattr(data, 'due_date', None))
     else:
-        parts = 3 if data.payment_mode == models.PaymentModeEnum.INSTALLMENT else 4
-        base_date = parse_date_safe(data.emi_start_date) or datetime.now().date()
+        parts = 3 if "INSTALLMENT_3" in mode_str_check else (4 if "INSTALLMENT_4" in mode_str_check else 3)
+        
+        base_date_str = getattr(data, 'emi_start_date', None)
+        if not base_date_str or not str(base_date_str).strip():
+            base_date = datetime.now().date()
+        else:
+            try:
+                base_date = datetime.strptime(str(base_date_str).strip(), "%Y-%m-%d").date()
+            except ValueError:
+                base_date = datetime.now().date()
+                
         part_amount = round(remaining_balance / parts, 2)
 
         for i in range(parts):
@@ -157,11 +165,11 @@ def create_invoice(db: Session, data):
             installment_schedule.append({
                 "installment_no": i + 1,
                 "amount": amount,
-                "due_date": str(due),
+                "due_date": due.strftime("%Y-%m-%d"),
                 "status": "DUE"
             })
         
-        next_due_date = base_date + timedelta(days=30)
+        next_due_date = (base_date + timedelta(days=30)).strftime("%Y-%m-%d")
 
     incoming_inv_num = getattr(data, 'invoice_number', None)
     existing_inv = None
@@ -262,7 +270,6 @@ def create_invoice(db: Session, data):
         db.refresh(invoice)
         return invoice
 
-# --- NEW ERP MODULE HELPERS ---
 
 def create_purchase_invoice(db: Session, data):
     db_item = models.PurchaseInvoiceModel(**data.dict())
@@ -353,15 +360,27 @@ def update_stock(db: Session, product_id: int, new_quantity: float):
         log_stock_change(db, product.product_name, "ADJUST", int(qty_diff), int(new_quantity), "Manual Adjustment")
     return product
 
-def get_all_invoices(db: Session): return db.query(models.Invoice).order_by(models.Invoice.id.desc()).all()
+def get_all_invoices(db: Session): 
+    invoices = db.query(models.Invoice).order_by(models.Invoice.id.desc()).all()
+    for inv in invoices:
+        amount = float(inv.total_amount or 0)
+        advance = float(inv.advance_paid or 0)
+        status_str = str(getattr(inv, 'payment_status', '')).split('.')[-1].upper()
+        if status_str == "PAID":
+            inv.remaining_amount = 0.0
+        else:
+            inv.remaining_amount = max(0.0, amount - advance)
+    return invoices
+
 def get_invoice_by_id(db: Session, invoice_id: int): return db.query(models.Invoice).filter(models.Invoice.id == invoice_id).first()
+
 def process_payment(db: Session, invoice_id: int, installment_no: int):
     invoice = get_invoice_by_id(db, invoice_id)
     if not invoice: return None
     if installment_no == 0:
         invoice.advance_paid += invoice.remaining_amount
         invoice.remaining_amount = 0
-        invoice.payment_status = models.PaymentStatusEnum.PAID
+        invoice.payment_status = "PAID"
         invoice.next_due_date = None
     else:
         if invoice.installment_schedule:
@@ -381,11 +400,11 @@ def process_payment(db: Session, invoice_id: int, installment_no: int):
             invoice.advance_paid += paid_amount
             invoice.remaining_amount -= paid_amount
             if all_paid or invoice.remaining_amount <= 0:
-                invoice.payment_status = models.PaymentStatusEnum.PAID
+                invoice.payment_status = "PAID"
                 invoice.next_due_date = None
             else:
-                invoice.payment_status = models.PaymentStatusEnum.PARTIAL
-                if next_due_string: invoice.next_due_date = datetime.strptime(next_due_string, "%Y-%m-%d").date()
+                invoice.payment_status = "PARTIAL"
+                if next_due_string: invoice.next_due_date = next_due_string
     db.commit()
     db.refresh(invoice)
     return invoice
@@ -401,20 +420,17 @@ def create_amc_contract(db: Session, data):
     return db_item
 
 def delete_invoice(db: Session, invoice_id: int):
-    # Find the target invoice
     db_invoice = db.query(models.Invoice).filter(models.Invoice.id == invoice_id).first()
     
     if not db_invoice:
         return False
         
-    # OPTIONAL: Restore inventory stock if this was a finalized invoice (not a quotation)
-    if db_invoice.doc_type == "INVOICE" and db_invoice.items:
+    doc_type_str = str(getattr(db_invoice, 'doc_type', '')).split('.')[-1].upper()
+    if doc_type_str == "INVOICE" and db_invoice.items:
         try:
-            # Parse the items stored in the invoice
             items = json.loads(db_invoice.items) if isinstance(db_invoice.items, str) else db_invoice.items
             
             for item in items:
-                # If the item has a linked product_id, restore the quantity to inventory
                 product_id = item.get("product_id") or item.get("id")
                 quantity = item.get("quantity", 1)
                 
@@ -426,7 +442,6 @@ def delete_invoice(db: Session, invoice_id: int):
         except Exception as e:
             print(f"Error restoring inventory during invoice deletion: {e}")
 
-    # Delete the invoice and commit changes
     db.delete(db_invoice)
     db.commit()
     
@@ -441,18 +456,17 @@ def get_dashboard_statistics(db: Session):
     invoice_count = 0
     
     for inv in invoices:
-        # We only count actual invoices in sales stats, not quotations
-        if inv.doc_type == "QUOTATION":
+        doc_type_str = str(getattr(inv, 'doc_type', '')).split('.')[-1].upper()
+        if doc_type_str == "QUOTATION":
             continue
             
         invoice_count += 1
         
-        # Safely convert to float
         amount = float(inv.total_amount or 0)
         advance = float(inv.advance_paid or 0)
         
-        # Calculate exactly how much was collected vs due
-        if inv.payment_status == "PAID":
+        status_str = str(getattr(inv, 'payment_status', '')).split('.')[-1].upper()
+        if status_str == "PAID":
             collected = amount
             due = 0
         else:
@@ -473,12 +487,12 @@ def get_dashboard_statistics(db: Session):
 def get_invoices(db: Session, skip: int = 0, limit: int = 100):
     invoices = db.query(models.Invoice).offset(skip).limit(limit).all()
     
-    # Inject remaining_amount dynamically so the frontend reports work!
     for inv in invoices:
         amount = float(inv.total_amount or 0)
         advance = float(inv.advance_paid or 0)
         
-        if inv.payment_status == "PAID":
+        status_str = str(getattr(inv, 'payment_status', '')).split('.')[-1].upper()
+        if status_str == "PAID":
             inv.remaining_amount = 0.0
         else:
             inv.remaining_amount = max(0.0, amount - advance)

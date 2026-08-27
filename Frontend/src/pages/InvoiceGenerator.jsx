@@ -759,13 +759,11 @@ export default function BillingConsole() {
     const pages = document.querySelectorAll(".invoice-page");
     if (pages.length === 0) return;
 
-    // THE FIX: Reset the CSS zoom scale before generating the PDF canvas 
-    // to prevent font metrics from miscalculating and causing squished/overlapping text.
     pages.forEach((page) => {
       page.style.boxShadow = "none";
       page.style.transform = "none";
       page.style.margin = "0";
-      page.style.zoom = "1"; // Force 100% zoom for accurate canvas rendering
+      page.style.zoom = "1";
     });
 
     try {
@@ -828,12 +826,11 @@ export default function BillingConsole() {
       console.error("Failed to save and download PDF", error.response?.data || error.message);
       alert(`Failed to save invoice before download:\n${errMsg}`);
     } finally {
-      // Revert the zoom styles so the UI preview goes back to normal on the screen
       pages.forEach((page) => {
         page.style.boxShadow = "";
         page.style.transform = "";
         page.style.margin = "";
-        page.style.zoom = ""; // Clear the override
+        page.style.zoom = ""; 
       });
     }
   };
@@ -2739,10 +2736,7 @@ export default function BillingConsole() {
                 let badgeBg = "";
 
                 if (isCurrentActiveSelected) {
-                  if (formData.doc_type === "QUOTATION") {
-                    badgeText = "QUOTE";
-                    badgeBg = "#fbbf24";
-                  } else if (isPaidMarked) {
+                  if (isPaidMarked) {
                     badgeText = "PAID";
                     badgeBg = "#10b981";
                   } else if (formData.payment_mode && formData.payment_mode.includes("INSTALLMENT")) {
@@ -2753,12 +2747,12 @@ export default function BillingConsole() {
                     badgeBg = "#ef4444";
                   }
                 } else {
-                  if (inv.doc_type === "QUOTATION") {
-                    badgeText = "QUOTE";
-                    badgeBg = "#fbbf24";
-                  } else if (inv.payment_status === "PAID") {
+                  if (inv.payment_status === "PAID") {
                     badgeText = "PAID";
                     badgeBg = "#10b981";
+                  } else if (inv.payment_status === "PARTIAL") {
+                    badgeText = "PARTIAL";
+                    badgeBg = "#f59e0b";
                   } else if (inv.payment_status === "INSTALLMENT" || (inv.payment_mode && inv.payment_mode.includes("INSTALLMENT"))) {
                     badgeText = "INSTALLMENT";
                     badgeBg = "#8b5cf6";
@@ -3233,7 +3227,7 @@ export default function BillingConsole() {
                                   <strong>{qty} PCS</strong>
                                 </td>
                                 <td className="text-right">
-                                  {rateInclTax.toFixed(2)}
+                                  {formData.is_gst_enabled ? rateInclTax.toFixed(2) : ""}
                                 </td>
                                 <td className="text-right">
                                   {baseRate.toFixed(2)}

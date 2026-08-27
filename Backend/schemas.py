@@ -1,7 +1,6 @@
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import date
-from models import PaymentModeEnum, DocTypeEnum
 
 class ActivationRequest(BaseModel):
     key: str
@@ -54,11 +53,11 @@ class Item(BaseModel):
     price: float
     sn_code: Optional[str] = ""
     gst_rate: float = 18.0
+    discount_percent: float = 0.0
 
 class InvoiceCreate(BaseModel):
-    doc_type: DocTypeEnum = DocTypeEnum.INVOICE
+    doc_type: str = "INVOICE"
     
-    # --- COMPANY HEADER DETAILS ---
     company_name: Optional[str] = None
     company_address: Optional[str] = None
     company_showroom: Optional[str] = None
@@ -71,7 +70,6 @@ class InvoiceCreate(BaseModel):
     company_logo: Optional[str] = None       
     digital_signature: Optional[str] = None
 
-    # --- BUYER (BILL TO) DETAILS ---
     client_name: Optional[str] = "Walk-in Customer"
     client_mobile: Optional[str] = None
     client_email: Optional[str] = None
@@ -82,7 +80,6 @@ class InvoiceCreate(BaseModel):
     firm_state_code: Optional[str] = "19" 
     place_of_supply: Optional[str] = None
 
-    # --- REFERENCE & METADATA ---
     invoice_number: Optional[str] = None
     invoice_date: Optional[str] = None 
     delivery_note: Optional[str] = None
@@ -96,27 +93,22 @@ class InvoiceCreate(BaseModel):
     destination: Optional[str] = None
     terms_of_delivery: Optional[str] = None
 
-    # --- BANK DETAILS ---
     bank_name: Optional[str] = None
     account_no: Optional[str] = None
     branch_ifsc: Optional[str] = None
     qr_code_image: Optional[str] = None
     
-    # --- ITEMS & FINANCIALS ---
     items: List[Item]
-    payment_mode: Optional[PaymentModeEnum] = PaymentModeEnum.FULL
+    payment_mode: Optional[str] = "FULL"
     installation_charges: Optional[float] = 0.0
     advance_paid: Optional[float] = 0.0
     
-    due_date: Optional[date] = None
-    emi_start_date: Optional[date] = None
+    due_date: Optional[str] = None
+    emi_start_date: Optional[str] = None
     
     is_gst_enabled: bool = True
-    
     payment_status: Optional[str] = None
 
-
-# --- UPDATED RESPONSE SCHEMA ---
 class InvoiceResponse(InvoiceCreate): 
     id: int
     total_amount: Optional[float] = 0.0

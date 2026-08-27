@@ -257,7 +257,7 @@ def export_gstr1_report(month: int, year: int, db: Session = Depends(get_db)):
     Filters directly in the database for optimal performance.
     """
     report_data = db.query(models.Invoice).filter(
-        models.Invoice.doc_type == models.DocTypeEnum.INVOICE,
+        models.Invoice.doc_type == "INVOICE",
         extract('month', models.Invoice.created_at) == month,
         extract('year', models.Invoice.created_at) == year
     ).all()
@@ -281,7 +281,7 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
         func.sum(models.Invoice.total_amount).label("total_sales"),
         func.sum(models.Invoice.remaining_amount).label("total_due")
     ).filter(
-        models.Invoice.doc_type == models.DocTypeEnum.INVOICE
+        models.Invoice.doc_type == "INVOICE"
     ).first()
 
     total_sales = stats.total_sales or 0.0

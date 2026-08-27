@@ -23,7 +23,48 @@ export default function Dashboard() {
     try {
       const res = await api.get("/dashboard/stats");
       if (res.data) {
-        setStats(res.data);
+        // Robust calculation guard: Re-aggregate dynamically from /invoices if dashboard totals are mismatched or missing
+        const invRes = await api.get("/invoices");
+        const invoices = Array.isArray(invRes.data) ? invRes.data : [];
+        
+        let computedSales = 0;
+        let computedCollected = 0;
+        let computedDue = 0;
+        let validInvoicesCount = 0;
+
+        invoices.forEach(inv => {
+          const docType = String(inv.doc_type || "").split('.').pop().toUpperCase();
+          if (docType === "QUOTATION") return; // Exclude quotations from financial sales totals
+
+          validInvoicesCount++;
+          const tAmount = Number(inv.total_amount) || 0;
+          const advPaid = Number(inv.advance_paid) || 0;
+          const status = String(inv.payment_status || "").split('.').pop().toUpperCase();
+
+          let remAmount = Number(inv.remaining_amount);
+          if (isNaN(remAmount) || remAmount < 0) {
+            remAmount = Math.max(0, tAmount - advPaid);
+          }
+
+          let collected = 0;
+          if (status === "PAID" || tAmount === 0) {
+            collected = tAmount;
+            remAmount = 0;
+          } else {
+            collected = advPaid;
+          }
+
+          computedSales += tAmount;
+          computedCollected += collected;
+          computedDue += remAmount;
+        });
+
+        setStats({
+          total_sales: computedSales > 0 ? computedSales : (res.data.total_sales || 0),
+          total_collected: computedCollected > 0 ? computedCollected : (res.data.total_collected || 0),
+          total_due: computedDue,
+          total_invoices: validInvoicesCount > 0 ? validInvoicesCount : (res.data.total_invoices || 0)
+        });
       }
     } catch (error) {
       console.error("Failed to fetch dashboard stats", error);
@@ -35,7 +76,7 @@ export default function Dashboard() {
   const formatCurrency = (amount) => {
     if (amount === undefined || amount === null) return "0.00";
     return new Intl.NumberFormat('en-IN', {
-      minimumFractionDigits: 1,
+      minimumFractionDigits: 2,
       maximumFractionDigits: 2
     }).format(amount);
   };
@@ -50,16 +91,19 @@ export default function Dashboard() {
     alert(`🚀 ${featureName} is currently in development and will be available in the next update!`);
   };
 
-  // --- NEW: Report Generation Logic ---
+  // --- Report Generation Logic ---
   const handleDownloadReport = async (reportType) => {
     try {
-      // Fetch all invoices to process the report
       const res = await api.get("/invoices");
       let data = res.data;
 
-      // Filter data based on the requested report type
       if (reportType === "DUES") {
-        data = data.filter(inv => inv.payment_status === "DUE" || inv.payment_status === "INSTALLMENT");
+        data = data.filter(inv => {
+          const status = String(inv.payment_status || "").split('.').pop().toUpperCase();
+          const docType = String(inv.doc_type || "").split('.').pop().toUpperCase();
+          const rem = Number(inv.remaining_amount) || 0;
+          return docType !== "QUOTATION" && status !== "PAID" && rem > 0;
+        });
       }
 
       if (!data || data.length === 0) {
@@ -67,7 +111,6 @@ export default function Dashboard() {
         return;
       }
 
-      // Define standard CSV Headers
       const headers = [
         "Date", 
         "Invoice Number", 
@@ -79,32 +122,27 @@ export default function Dashboard() {
         "Doc Type"
       ];
       
-      // Map JSON data to CSV rows
       const rows = data.map(inv => {
-        // Safe date parsing
         const dateStr = inv.invoice_date || inv.created_at || "";
         const formattedDate = dateStr ? new Date(dateStr).toLocaleDateString('en-IN') : "N/A";
         
-        // Wrap text fields in quotes to prevent comma breaking in CSV
         return [
           formattedDate,
           inv.invoice_number || "N/A",
-          `"${(inv.client_name || "N/A").replace(/"/g, '""')}"`, // Escape double quotes
+          `"${(inv.client_name || "N/A").replace(/"/g, '""')}"`,
           inv.client_mobile || "N/A",
           inv.total_amount || 0,
           inv.advance_paid || 0,
-          inv.payment_status || "N/A",
-          inv.doc_type || "INVOICE"
+          String(inv.payment_status || "DUE").split('.').pop(),
+          String(inv.doc_type || "INVOICE").split('.').pop()
         ];
       });
 
-      // Combine headers and rows
       const csvContent = [
         headers.join(","), 
         ...rows.map(e => e.join(","))
       ].join("\n");
 
-      // Create a Blob and trigger the browser download
       const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -116,7 +154,7 @@ export default function Dashboard() {
       link.click();
       document.body.removeChild(link);
       
-      setShowReportModal(false); // Close modal on success
+      setShowReportModal(false);
       
     } catch (error) {
       console.error("Failed to generate report", error);
@@ -885,3 +923,4 @@ export default function Dashboard() {
     </>
   );
 }
+  

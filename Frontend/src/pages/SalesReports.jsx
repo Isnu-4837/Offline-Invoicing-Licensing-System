@@ -49,6 +49,7 @@ export default function SalesReports() {
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [timeframe, setTimeframe] = useState("monthly"); // 'weekly' | 'monthly' | 'yearly'
+  const [quickFilter, setQuickFilter] = useState("custom"); // 'custom' | 'this_month' | 'ytd'
   const [barsReady, setBarsReady] = useState(false);
   const [exporting, setExporting] = useState(false);
 
@@ -86,6 +87,19 @@ export default function SalesReports() {
 
   const getInvoiceDate = (inv) => {
     return inv.created_at ? new Date(inv.created_at) : new Date();
+  };
+
+  const handleQuickFilter = (type) => {
+    setQuickFilter(type);
+    const now = new Date();
+    if (type === "this_month") {
+      setSelectedYear(now.getFullYear());
+      setSelectedMonth(now.getMonth() + 1);
+      setTimeframe("monthly");
+    } else if (type === "ytd") {
+      setSelectedYear(now.getFullYear());
+      setTimeframe("yearly");
+    }
   };
 
   const getFilteredInvoices = () => {
@@ -186,7 +200,7 @@ export default function SalesReports() {
 
       doc.setFontSize(18);
       doc.setTextColor(30, 30, 30);
-      doc.text("Sales Report", 14, 20);
+      doc.text("Sales Report Analysis", 14, 20);
 
       doc.setFontSize(10);
       doc.setTextColor(110, 110, 110);
@@ -273,40 +287,43 @@ export default function SalesReports() {
           to { transform: rotate(360deg); }
         }
 
-        body { background-color: #121212; font-family: 'Plus Jakarta Sans', sans-serif; color: #f1f5f9; margin: 0; min-height: 100vh; }
+        body { background-color: #09090b; font-family: 'Plus Jakarta Sans', sans-serif; color: #f1f5f9; margin: 0; min-height: 100vh; }
 
         .report-shell { position: relative; min-height: 100vh; overflow: hidden; }
         .report-orb { position: absolute; border-radius: 50%; filter: blur(90px); opacity: 0.16; pointer-events: none; z-index: 0; }
         .report-orb-1 { width: 460px; height: 460px; top: -160px; right: -120px; background: radial-gradient(circle, #ea580c, transparent 70%); animation: orb-drift 16s ease-in-out infinite; }
         .report-orb-2 { width: 380px; height: 380px; bottom: -140px; left: -100px; background: radial-gradient(circle, #38bdf8, transparent 70%); animation: orb-drift 18s ease-in-out infinite reverse; }
 
-        .report-container { position: relative; z-index: 1; max-width: 1100px; margin: 0 auto; padding: 40px 20px; }
+        .report-container { position: relative; z-index: 1; max-width: 1150px; margin: 0 auto; padding: 40px 20px; }
 
-        .header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; animation: fade-slide-up 0.5s ease both; }
-        .back-btn { background: #262626; border: 1px solid rgba(255,255,255,0.1); color: white; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-weight: 600; transition: background 0.2s ease, transform 0.15s ease; }
-        .back-btn:hover { background: #333; transform: translateX(-2px); }
+        .header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; animation: fade-slide-up 0.5s ease both; }
+        .back-btn { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); color: white; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-weight: 600; transition: background 0.2s ease, transform 0.15s ease; }
+        .back-btn:hover { background: rgba(255,255,255,0.15); transform: translateX(-2px); }
 
-        .tabs-row { display: flex; gap: 12px; margin-bottom: 24px; animation: fade-slide-up 0.5s ease 0.05s both; }
-        .tab-btn { background: #1a1a1a; border: 1px solid rgba(255,255,255,0.05); color: #94a3b8; padding: 10px 20px; border-radius: 8px; font-weight: 700; cursor: pointer; transition: all 0.2s ease; }
-        .tab-btn:hover { color: #e2e8f0; border-color: rgba(255,255,255,0.15); }
-        .tab-btn.active { background: #ea580c; color: white; border-color: #ea580c; box-shadow: 0 4px 14px rgba(234, 88, 12, 0.35); animation: pill-pop 0.3s ease; }
+        .toolbar-grid { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; margin-bottom: 24px; animation: fade-slide-up 0.5s ease 0.05s both; }
+        .tabs-row { display: flex; gap: 8px; }
+        .quick-filters { display: flex; gap: 8px; }
 
-        .filters-row { background: #1a1a1a; padding: 16px 20px; border-radius: 10px; display: flex; gap: 20px; align-items: center; margin-bottom: 24px; border: 1px solid rgba(255,255,255,0.05); animation: fade-slide-up 0.5s ease 0.1s both; }
+        .tab-btn { background: linear-gradient(145deg, #131c31 0%, #0e1626 100%); border: 1px solid rgba(255,255,255,0.08); color: #94a3b8; padding: 10px 18px; border-radius: 10px; font-weight: 700; cursor: pointer; transition: all 0.2s ease; font-family: inherit; font-size: 13px; }
+        .tab-btn:hover { color: #e2e8f0; border-color: rgba(255,255,255,0.2); }
+        .tab-btn.active { background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%); color: white; border-color: #ea580c; box-shadow: 0 4px 14px rgba(234, 88, 12, 0.35); animation: pill-pop 0.3s ease; }
+
+        .filters-row { background: linear-gradient(145deg, #131c31 0%, #0e1626 100%); padding: 16px 20px; border-radius: 12px; display: flex; gap: 20px; align-items: center; margin-bottom: 30px; border: 1px solid rgba(255,255,255,0.05); box-shadow: 0 10px 30px rgba(0,0,0,0.5); animation: fade-slide-up 0.5s ease 0.1s both; }
         .filter-group { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; color: #94a3b8; }
-        .filter-select { background: #262626; border: 1px solid rgba(255,255,255,0.1); color: white; padding: 8px 12px; border-radius: 6px; font-family: inherit; transition: border-color 0.2s ease; }
+        .filter-select { background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255,255,255,0.1); color: white; padding: 8px 12px; border-radius: 8px; font-family: inherit; transition: border-color 0.2s ease; }
         .filter-select:hover, .filter-select:focus { border-color: #ea580c; outline: none; }
 
         .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 30px; }
-        .stat-card { background: #1a1a1a; border-radius: 10px; padding: 20px; border: 1px solid rgba(255,255,255,0.05); transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease; animation: fade-slide-up 0.5s ease both; }
-        .stat-card:hover { transform: translateY(-4px); border-color: rgba(255,255,255,0.15); box-shadow: 0 10px 26px rgba(0,0,0,0.4); }
+        .stat-card { background: linear-gradient(145deg, #131c31 0%, #0e1626 100%); border-radius: 16px; padding: 22px; border: 1px solid rgba(255,255,255,0.05); box-shadow: 0 10px 30px rgba(0,0,0,0.5); transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease; animation: fade-slide-up 0.5s ease both; }
+        .stat-card:hover { transform: translateY(-4px); border-color: rgba(234, 88, 12, 0.4); box-shadow: 0 10px 26px rgba(0,0,0,0.6); }
         .stat-title { font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.4px; }
         .stat-value { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
 
-        .breakdown-section { background: #1a1a1a; border-radius: 10px; padding: 24px; border: 1px solid rgba(255,255,255,0.05); margin-bottom: 30px; animation: fade-slide-up 0.5s ease 0.15s both; }
+        .breakdown-section { background: linear-gradient(145deg, #131c31 0%, #0e1626 100%); border-radius: 16px; padding: 24px; border: 1px solid rgba(255,255,255,0.05); box-shadow: 0 10px 30px rgba(0,0,0,0.5); margin-bottom: 30px; animation: fade-slide-up 0.5s ease 0.15s both; }
         .section-title { font-size: 16px; font-weight: 700; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
 
         .breakdown-table { width: 100%; border-collapse: collapse; }
-        .breakdown-table th, .breakdown-table td { padding: 12px 16px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 13.5px; }
+        .breakdown-table th, .breakdown-table td { padding: 14px 16px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 13.5px; }
         .breakdown-table th { color: #94a3b8; font-weight: 700; text-transform: uppercase; font-size: 11px; }
         .breakdown-table tbody tr { animation: row-in 0.4s ease both; transition: background 0.15s ease; }
         .breakdown-table tbody tr:hover { background: rgba(255,255,255,0.025); }
@@ -314,13 +331,21 @@ export default function SalesReports() {
         .bar-track { position: relative; width: 100%; height: 6px; background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden; margin-top: 6px; }
         .bar-fill { position: absolute; left: 0; top: 0; height: 100%; width: 0%; border-radius: 4px; background: linear-gradient(90deg, #38bdf8, #ea580c); transition: width 0.8s cubic-bezier(0.16,1,0.3,1); }
 
-        .export-btn { position: relative; overflow: hidden; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease; }
+        .export-btn { position: relative; overflow: hidden; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; padding: 10px 20px; border-radius: 10px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease; font-family: inherit; font-size: 14px; }
         .export-btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 10px 22px rgba(16,185,129,0.3); }
         .export-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
         .spinner { width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.35); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; }
 
-        .skeleton-row { height: 18px; border-radius: 4px; margin: 10px 0; background: linear-gradient(90deg, #1f1f1f 0%, #2b2b2b 40%, #1f1f1f 80%); background-size: 600px 100%; animation: shimmer 1.4s ease-in-out infinite; }
+        .skeleton-row { height: 18px; border-radius: 4px; margin: 10px 0; background: linear-gradient(90deg, #131c31 0%, #1e293b 40%, #131c31 80%); background-size: 600px 100%; animation: shimmer 1.4s ease-in-out infinite; }
+
+        @media (max-width: 900px) {
+          .stats-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+        @media (max-width: 600px) {
+          .stats-grid { grid-template-columns: 1fr; }
+          .toolbar-grid { flex-direction: column; align-items: stretch; }
+        }
       `}</style>
 
       <div className="report-shell">
@@ -339,18 +364,25 @@ export default function SalesReports() {
             </button>
           </div>
 
-          {/* Timeframe Tabs */}
-          <div className="tabs-row">
-            <button className={`tab-btn ${timeframe === "weekly" ? "active" : ""}`} onClick={() => setTimeframe("weekly")}>Weekly Report</button>
-            <button className={`tab-btn ${timeframe === "monthly" ? "active" : ""}`} onClick={() => setTimeframe("monthly")}>Monthly Report</button>
-            <button className={`tab-btn ${timeframe === "yearly" ? "active" : ""}`} onClick={() => setTimeframe("yearly")}>Yearly Report</button>
+          {/* Toolbar with Timeframe & Quick Filters */}
+          <div className="toolbar-grid">
+            <div className="tabs-row">
+              <button className={`tab-btn ${timeframe === "weekly" ? "active" : ""}`} onClick={() => setTimeframe("weekly")}>Weekly Report</button>
+              <button className={`tab-btn ${timeframe === "monthly" ? "active" : ""}`} onClick={() => setTimeframe("monthly")}>Monthly Report</button>
+              <button className={`tab-btn ${timeframe === "yearly" ? "active" : ""}`} onClick={() => setTimeframe("yearly")}>Yearly Report</button>
+            </div>
+
+            <div className="quick-filters">
+              <button className={`tab-btn ${quickFilter === "this_month" ? "active" : ""}`} onClick={() => handleQuickFilter("this_month")}>This Month</button>
+              <button className={`tab-btn ${quickFilter === "ytd" ? "active" : ""}`} onClick={() => handleQuickFilter("ytd")}>Year to Date</button>
+            </div>
           </div>
 
           {/* Filters */}
           <div className="filters-row">
             <div className="filter-group">
               <span>Year:</span>
-              <select className="filter-select" value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)}>
+              <select className="filter-select" value={selectedYear} onChange={(e) => { setSelectedYear(e.target.value); setQuickFilter("custom"); }}>
                 {[2024, 2025, 2026, 2027].map((yr) => (
                   <option key={yr} value={yr}>{yr}</option>
                 ))}
@@ -360,7 +392,7 @@ export default function SalesReports() {
             {timeframe !== "yearly" && (
               <div className="filter-group">
                 <span>Month:</span>
-                <select className="filter-select" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}>
+                <select className="filter-select" value={selectedMonth} onChange={(e) => { setSelectedMonth(e.target.value); setQuickFilter("custom"); }}>
                   {MONTH_NAMES.map((m, idx) => (
                     <option key={idx + 1} value={idx + 1}>{m}</option>
                   ))}
@@ -392,7 +424,7 @@ export default function SalesReports() {
           {/* Breakdown Table */}
           <div className="breakdown-section">
             <div className="section-title">
-              <span>{timeframe.toUpperCase()} Breakdown</span>
+              <span>{timeframe.toUpperCase()} Breakdown Performance</span>
               <span style={{ fontSize: "12px", color: "#94a3b8", fontWeight: "400" }}>Showing stats for {selectedYear}</span>
             </div>
 

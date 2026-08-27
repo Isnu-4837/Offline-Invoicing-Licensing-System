@@ -1,5 +1,5 @@
 import enum
-from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Enum, JSON, Boolean
+from sqlalchemy import Column, Integer, String, Float, DateTime, JSON, Boolean
 from sqlalchemy.sql import func
 from db import Base
 
@@ -11,7 +11,7 @@ class PaymentStatusEnum(str, enum.Enum):
     PAID = "PAID"
     PARTIAL = "PARTIAL"
     DUE = "DUE"
-    INSTALLMENT = "INSTALLMENT" # Added to perfectly align with UI requirements
+    INSTALLMENT = "INSTALLMENT"
 
 class PaymentModeEnum(str, enum.Enum):
     FULL = "FULL"
@@ -57,7 +57,7 @@ class AmcContractModel(Base):
     product_details = Column(String)
     install_date = Column(String)
     expiry_date = Column(String)
-    status = Column(String) # Active, Expiring Soon, Expired
+    status = Column(String)
 
 class FollowUpModel(Base):
     __tablename__ = "follow_ups"
@@ -74,7 +74,7 @@ class StockAuditModel(Base):
     id = Column(Integer, primary_key=True, index=True)
     date = Column(String)
     product_name = Column(String)
-    action_type = Column(String) # IN, OUT, ADJUST
+    action_type = Column(String)
     quantity_change = Column(Integer)
     closing_balance = Column(Integer)
     reference = Column(String)
@@ -85,7 +85,7 @@ class MessageLogModel(Base):
     sent_at = Column(String)
     client_name = Column(String)
     phone_number = Column(String)
-    status = Column(String) # Sent, Failed, Pending
+    status = Column(String)
 
 class Activation(Base):
     __tablename__ = "activations"
@@ -100,7 +100,9 @@ class Invoice(Base):
     __tablename__ = "invoices"
     id = Column(Integer, primary_key=True, index=True)
     invoice_number = Column(String, unique=True, nullable=True)
-    doc_type = Column(Enum(DocTypeEnum), default=DocTypeEnum.INVOICE)
+    
+    doc_type = Column(String, default="INVOICE")
+    
     qr_code_image = Column(String, nullable=True)
     company_logo = Column(String, nullable=True)        
     digital_signature = Column(String, nullable=True)
@@ -129,9 +131,7 @@ class Invoice(Base):
     reference_no_date = Column(String, nullable=True)
     other_references = Column(String, nullable=True)
     buyers_order_no = Column(String, nullable=True)
-    order_dated = Column(Date, nullable=True)
     dispatch_doc_no = Column(String, nullable=True)
-    delivery_note_date = Column(Date, nullable=True)
     dispatched_through = Column(String, nullable=True)
     destination = Column(String, nullable=True)
     terms_of_delivery = Column(String, nullable=True)
@@ -151,18 +151,21 @@ class Invoice(Base):
     sgst_total = Column(Float, default=0, nullable=True)
     igst_total = Column(Float, default=0, nullable=True)
 
-    payment_mode = Column(Enum(PaymentModeEnum), nullable=True)
+    payment_mode = Column(String, nullable=True)
     installment_schedule = Column(JSON, nullable=True)
-    payment_status = Column(Enum(PaymentStatusEnum), default=PaymentStatusEnum.DUE, nullable=True)
-    due_date = Column(Date, nullable=True) 
-    emi_start_date = Column(Date, nullable=True)
-    next_due_date = Column(Date, nullable=True)
+    payment_status = Column(String, default="DUE", nullable=True)
+    
+    # FIXED: Replaced Date with String to completely bypass SQLAlchemy date-parsing crashes
+    order_dated = Column(String, nullable=True)
+    delivery_note_date = Column(String, nullable=True)
+    due_date = Column(String, nullable=True) 
+    emi_start_date = Column(String, nullable=True)
+    next_due_date = Column(String, nullable=True)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 class SystemConfig(Base):
     __tablename__ = "system_config"
-    
     id = Column(Integer, primary_key=True, index=True)
     is_activated = Column(Boolean, default=False)
     license_key = Column(String, nullable=True)
