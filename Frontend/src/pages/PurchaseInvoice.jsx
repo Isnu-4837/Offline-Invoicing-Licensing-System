@@ -57,6 +57,36 @@ function fileToBase64(file) {
   });
 }
 
+// --- Smooth ease-out count-up used for the ledger stats strip ---
+function useCountUp(target, duration = 1000, trigger = true) {
+  const [value, setValue] = useState(0);
+  const rafRef = useRef(null);
+
+  useEffect(() => {
+    if (!trigger) return undefined;
+    const safeTarget = Number(target) || 0;
+    let start = null;
+
+    const step = (ts) => {
+      if (start === null) start = ts;
+      const progress = Math.min((ts - start) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setValue(safeTarget * eased);
+      if (progress < 1) {
+        rafRef.current = requestAnimationFrame(step);
+      } else {
+        setValue(safeTarget);
+      }
+    };
+
+    rafRef.current = requestAnimationFrame(step);
+    return () => rafRef.current && cancelAnimationFrame(rafRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target, duration, trigger]);
+
+  return value;
+}
+
 export default function PurchaseInvoice() {
   const navigate = useNavigate();
   const [purchases, setPurchases] = useState([]);
@@ -80,11 +110,36 @@ export default function PurchaseInvoice() {
   const [isDragActive, setIsDragActive] = useState(false);
   const fileInputRef = useRef(null);
   const highlightTimerRef = useRef(null);
+  const [now, setNow] = useState(new Date());
 
   // Fetch data on component mount
   useEffect(() => {
     fetchPurchases();
     return () => clearTimeout(highlightTimerRef.current);
+  }, []);
+
+  // Live ticking clock for the status strip
+  useEffect(() => {
+    const tick = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(tick);
+  }, []);
+
+  // --- 3D tilt + cursor spotlight for glass cards ---
+  const handleTilt = useCallback((e) => {
+    const card = e.currentTarget;
+    const rect = card.getBoundingClientRect();
+    const px = (e.clientX - rect.left) / rect.width;
+    const py = (e.clientY - rect.top) / rect.height;
+    card.style.setProperty("--rx", `${(py - 0.5) * -7}deg`);
+    card.style.setProperty("--ry", `${(px - 0.5) * 7}deg`);
+    card.style.setProperty("--mx", `${px * 100}%`);
+    card.style.setProperty("--my", `${py * 100}%`);
+  }, []);
+
+  const resetTilt = useCallback((e) => {
+    const card = e.currentTarget;
+    card.style.setProperty("--rx", `0deg`);
+    card.style.setProperty("--ry", `0deg`);
   }, []);
 
   const fetchPurchases = async () => {
@@ -247,6 +302,12 @@ export default function PurchaseInvoice() {
 
   const fmt = (n) => `₹${Number(n).toLocaleString('en-IN')}`;
 
+  // Animated ledger numbers
+  const statsReady = !isLoading;
+  const animOutstanding = useCountUp(stats.outstanding, 1200, statsReady);
+  const animSettled = useCountUp(stats.settled, 1200, statsReady);
+  const animCount = useCountUp(stats.count, 900, statsReady);
+
   return (
     <>
       <style>{`
@@ -354,8 +415,43 @@ export default function PurchaseInvoice() {
         @keyframes dashScroll {
           to { background-position: 40px 0, -40px 40px, 0 -40px, 40px 0; }
         }
+        @keyframes ledgerScan {
+          0% { transform: translateY(-10%); opacity: 0; }
+          10% { opacity: 0.5; }
+          90% { opacity: 0.5; }
+          100% { transform: translateY(110vh); opacity: 0; }
+        }
+        @keyframes ringSpin {
+          to { transform: rotate(360deg); }
+        }
+        @keyframes dotPulseAccent {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(167, 139, 250, 0.5); }
+          50% { box-shadow: 0 0 0 5px rgba(167, 139, 250, 0); }
+        }
 
         .fade-in { animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+        .ledger-scan-line {
+          position: fixed; left: 0; right: 0; height: 140px;
+          background: linear-gradient(180deg, transparent, rgba(139, 108, 240, 0.05), transparent);
+          pointer-events: none; z-index: 0; animation: ledgerScan 12s linear infinite;
+        }
+
+        /* ---- Tilt + spotlight mechanics (stat cards) ---- */
+        .tilt-card { transform-style: preserve-3d; perspective: 900px; }
+        .card-spotlight {
+          position: absolute; inset: 0; border-radius: inherit;
+          background: radial-gradient(420px circle at var(--mx, 50%) var(--my, 50%), rgba(255,255,255,0.08), transparent 45%);
+          opacity: 0; transition: opacity 0.3s ease; pointer-events: none;
+        }
+        .tilt-card:hover .card-spotlight { opacity: 1; }
+
+        .status-live { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
+        .status-live .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent-2); animation: dotPulseAccent 2s ease-in-out infinite; display: inline-block; }
+        .status-live .status-text { font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint); }
+
+        .header-clock { text-align: right; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--text-faint); }
+        .header-clock .clock-time { display: block; font-size: 15px; color: var(--text); font-weight: 600; margin-top: 3px; letter-spacing: 0.05em; }
 
         .header-row {
           display: flex;
@@ -439,14 +535,18 @@ export default function PurchaseInvoice() {
           z-index: 1;
         }
         .stat-card {
+          position: relative;
+          overflow: hidden;
           background: var(--surface-flat);
           backdrop-filter: blur(6px);
           border: 1px solid var(--border);
           border-radius: 14px;
           padding: 16px 18px;
           transition: 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+          transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
         }
-        .stat-card:hover { border-color: rgba(255,255,255,0.15); transform: translateY(-2px); }
+        .stat-card:hover { border-color: rgba(255,255,255,0.15); transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(-2px); box-shadow: 0 14px 28px -16px rgba(139,108,240,0.28); }
+        .stat-label, .stat-value { position: relative; }
         .stat-label {
           font-size: 10.5px;
           font-weight: 700;
@@ -860,34 +960,51 @@ export default function PurchaseInvoice() {
           .stats-row { grid-template-columns: 1fr; }
           .card-sticky { position: static; }
         }
+
+        @media (max-width: 640px) {
+          .header-row { align-items: flex-start; }
+          .header-clock { text-align: left; }
+        }
       `}</style>
+
+      <div className="ledger-scan-line" />
 
       <div className="page-container">
         <div className="header-row fade-in">
           <div className="header-title-group">
             <button className="icon-btn" onClick={() => navigate('/')} aria-label="Back">←</button>
             <div>
+              <div className="status-live"><span className="status-dot"></span><span className="status-text">Live Ledger</span></div>
               <h1>Purchase Invoices</h1>
               <p className="header-eyebrow">Supplier bills &amp; payment ledger</p>
             </div>
           </div>
-          <button className="ledger-btn" onClick={() => navigate('/vendor-ledger')}>
-            📒 Vendor Ledger
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '18px' }}>
+            <div className="header-clock">
+              <span>{now.toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' })}</span>
+              <span className="clock-time">{now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}</span>
+            </div>
+            <button className="ledger-btn" onClick={() => navigate('/vendor-ledger')}>
+              📒 Vendor Ledger
+            </button>
+          </div>
         </div>
 
         <div className="stats-row fade-in" style={{ animationDelay: '0.05s' }}>
-          <div className="stat-card stat-outstanding">
+          <div className="stat-card stat-outstanding tilt-card" onMouseMove={handleTilt} onMouseLeave={resetTilt}>
+            <span className="card-spotlight" />
             <p className="stat-label">Outstanding</p>
-            <p className="stat-value">{fmt(stats.outstanding)}</p>
+            <p className="stat-value">{fmt(Math.round(animOutstanding))}</p>
           </div>
-          <div className="stat-card stat-settled">
+          <div className="stat-card stat-settled tilt-card" onMouseMove={handleTilt} onMouseLeave={resetTilt}>
+            <span className="card-spotlight" />
             <p className="stat-label">Settled</p>
-            <p className="stat-value">{fmt(stats.settled)}</p>
+            <p className="stat-value">{fmt(Math.round(animSettled))}</p>
           </div>
-          <div className="stat-card stat-count">
+          <div className="stat-card stat-count tilt-card" onMouseMove={handleTilt} onMouseLeave={resetTilt}>
+            <span className="card-spotlight" />
             <p className="stat-label">Bills Logged</p>
-            <p className="stat-value">{stats.count}</p>
+            <p className="stat-value">{Math.round(animCount)}</p>
           </div>
         </div>
 

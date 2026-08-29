@@ -25,9 +25,17 @@ try:
     # 4. Nullify empty dates which cause 500 Pydantic validation crashes
     cursor.execute("UPDATE invoices SET due_date = NULL WHERE due_date = ''")
     cursor.execute("UPDATE invoices SET emi_start_date = NULL WHERE emi_start_date = ''")
+
+    # 5. Add new contact_number column to AMC Tracking table
+    try:
+        cursor.execute("ALTER TABLE amc_contracts ADD COLUMN contact_number VARCHAR")
+        print("Added 'contact_number' column to amc_contracts.")
+    except sqlite3.OperationalError:
+        # If it throws an error, the column already exists, which is perfectly fine.
+        print("'contact_number' column already exists in amc_contracts.")
     
     conn.commit()
-    print("SUCCESS: Database patched and poisoned data neutralized!")
+    print("SUCCESS: Database patched and updated successfully!")
     
 except Exception as e:
     print(f"FAILED to patch database: {e}")

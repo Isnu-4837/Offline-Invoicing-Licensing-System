@@ -999,11 +999,45 @@ export default function BillingConsole() {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Orbitron:wght@600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+        :root {
+          --ion: #2dd4ff;
+          --ion-soft: rgba(45, 212, 255, 0.35);
+          --plasma: #9f5bff;
+          --plasma-soft: rgba(159, 91, 255, 0.32);
+          --signal: #ffb454;
+          --void: #05070d;
+          --void-2: #101a2c;
+          --void-3: #080d18;
+          --mist: #8ea3c9;
+        }
 
         @keyframes spinSmooth {
           0% { transform: translate(-50%, -50%) rotate(0deg); }
           100% { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+
+        @keyframes scanSweep {
+          0% { top: -10%; opacity: 0; }
+          8% { opacity: 0.55; }
+          92% { opacity: 0.55; }
+          100% { top: 110%; opacity: 0; }
+        }
+
+        @keyframes gridDrift {
+          0% { background-position: 0 0, 0 0; }
+          100% { background-position: 60px 60px, 60px 60px; }
+        }
+
+        @keyframes cornerPulse {
+          0%, 100% { opacity: 0.55; filter: drop-shadow(0 0 2px currentColor); }
+          50% { opacity: 1; filter: drop-shadow(0 0 6px currentColor); }
+        }
+
+        @keyframes tickerBlink {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.25; }
         }
 
         .btn.is-loading {
@@ -1054,8 +1088,8 @@ export default function BillingConsole() {
           50% { background-position: 100% 50%; }
         }
         @keyframes pulseGlow {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.35); }
-          50% { box-shadow: 0 0 0 6px rgba(56, 189, 248, 0); }
+          0%, 100% { box-shadow: 0 0 0 0 rgba(45, 212, 255, 0.35); }
+          50% { box-shadow: 0 0 0 6px rgba(45, 212, 255, 0); }
         }
         @keyframes badgeBreathe {
           0%, 100% { transform: scale(1); filter: brightness(1); }
@@ -1070,17 +1104,66 @@ export default function BillingConsole() {
           50% { transform: translateY(-10px); }
         }
 
+        html { scroll-behavior: smooth; }
+
         body { 
           background:
-            radial-gradient(circle at 15% 20%, rgba(56, 189, 248, 0.10), transparent 40%),
-            radial-gradient(circle at 85% 80%, rgba(129, 90, 245, 0.10), transparent 40%),
-            #090d16;
-          background-size: 200% 200%, 200% 200%, auto;
+            radial-gradient(circle at 15% 20%, rgba(45, 212, 255, 0.12), transparent 40%),
+            radial-gradient(circle at 85% 80%, rgba(159, 91, 255, 0.12), transparent 40%),
+            radial-gradient(circle at 50% 100%, rgba(255, 180, 84, 0.05), transparent 45%),
+            var(--void);
+          background-size: 200% 200%, 200% 200%, 200% 200%, auto;
           animation: bgDrift 22s ease-in-out infinite;
           font-family: 'Plus Jakarta Sans', sans-serif; 
           color: #f1f5f9; 
           margin: 0; 
           scroll-behavior: smooth;
+        }
+
+        body::before {
+          content: "";
+          position: fixed;
+          inset: 0;
+          pointer-events: none;
+          z-index: 0;
+          background-image:
+            linear-gradient(rgba(45, 212, 255, 0.05) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(45, 212, 255, 0.05) 1px, transparent 1px);
+          background-size: 42px 42px, 42px 42px;
+          mask-image: radial-gradient(ellipse 80% 60% at 50% 20%, #000 30%, transparent 85%);
+          -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 20%, #000 30%, transparent 85%);
+          animation: gridDrift 14s linear infinite;
+        }
+
+        .scan-sweep {
+          position: fixed;
+          left: 0; right: 0;
+          height: 140px;
+          top: -10%;
+          background: linear-gradient(180deg, transparent, rgba(45, 212, 255, 0.05) 45%, rgba(159, 91, 255, 0.04) 55%, transparent);
+          pointer-events: none;
+          z-index: 0;
+          mix-blend-mode: screen;
+          animation: scanSweep 10s linear infinite;
+        }
+
+        .eyebrow-tag {
+          font-family: 'JetBrains Mono', monospace;
+          font-size: 10.5px;
+          font-weight: 600;
+          letter-spacing: 2.5px;
+          text-transform: uppercase;
+          color: var(--ion);
+          display: inline-flex;
+          align-items: center;
+          gap: 7px;
+        }
+
+        .eyebrow-tag .dot {
+          width: 6px; height: 6px; border-radius: 50%;
+          background: #34d399;
+          box-shadow: 0 0 8px #34d399;
+          animation: tickerBlink 1.8s ease-in-out infinite;
         }
         
         .container { 
@@ -1100,78 +1183,99 @@ export default function BillingConsole() {
         } 
 
         .panel { 
-          background: linear-gradient(145deg, #131c31 0%, #0e1626 100%); 
+          background:
+            linear-gradient(90deg, transparent, var(--ion), var(--plasma), transparent) top / 220% 2px no-repeat,
+            linear-gradient(145deg, var(--void-2) 0%, var(--void-3) 100%);
           padding: 30px; 
-          border-radius: 20px; 
+          border-radius: 18px; 
           border: 1px solid rgba(255, 255, 255, 0.08);
-          box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.5);
+          box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255,255,255,0.03);
           position: relative;
           overflow: hidden;
-          animation: fadeInUp 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+          animation: fadeInUp 0.55s cubic-bezier(0.16, 1, 0.3, 1) both, gradientText 7s linear infinite;
           transition: box-shadow 0.35s ease, border-color 0.35s ease;
         }
 
-        .panel::before {
+        .panel::before, .panel::after,
+        .invoice-wrapper::before, .invoice-wrapper::after,
+        .modal-box::before, .modal-box::after {
           content: "";
           position: absolute;
-          top: 0; left: 0; right: 0;
-          height: 2px;
-          background: linear-gradient(90deg, transparent, #38bdf8, #815af5, transparent);
-          background-size: 200% 100%;
-          animation: gradientText 6s linear infinite;
-          opacity: 0.8;
+          width: 22px; height: 22px;
+          pointer-events: none;
+          z-index: 2;
+          color: var(--ion);
+          animation: cornerPulse 3s ease-in-out infinite;
+        }
+        .panel::before, .invoice-wrapper::before, .modal-box::before {
+          top: 10px; left: 10px;
+          border-top: 2px solid currentColor;
+          border-left: 2px solid currentColor;
+        }
+        .panel::after, .invoice-wrapper::after, .modal-box::after {
+          bottom: 10px; right: 10px;
+          border-bottom: 2px solid currentColor;
+          border-right: 2px solid currentColor;
+          color: var(--plasma);
+          animation-delay: 1.2s;
         }
 
         .panel:hover {
-          box-shadow: 0 24px 48px -15px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(56, 189, 248, 0.08);
+          box-shadow: 0 24px 48px -15px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(45, 212, 255, 0.1);
         }
 
         .panel h3 { 
           margin-top: 0; 
           color: #ffffff; 
           margin-bottom: 24px; 
-          font-size: 1.35rem; 
+          font-family: 'Orbitron', 'Plus Jakarta Sans', sans-serif;
+          font-size: 1.15rem; 
           font-weight: 700;
-          letter-spacing: -0.01em;
-          background: linear-gradient(90deg, #ffffff 0%, #38bdf8 50%, #ffffff 100%);
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          background: linear-gradient(90deg, #ffffff 0%, #2dd4ff 50%, #ffffff 100%);
           background-size: 200% auto;
           -webkit-background-clip: text;
           background-clip: text;
           -webkit-text-fill-color: transparent;
           animation: gradientText 5s ease-in-out infinite;
           display: inline-block;
+          text-shadow: 0 0 24px rgba(45, 212, 255, 0.25);
         }
 
         .input-group { 
           margin-bottom: 20px; 
           background: rgba(15, 23, 42, 0.6); 
           padding: 20px; 
-          border-radius: 14px; 
+          border-radius: 12px; 
           border: 1px solid rgba(255, 255, 255, 0.05);
+          border-left: 2px solid rgba(45, 212, 255, 0.15);
           backdrop-filter: blur(8px);
           animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
           transition: border-color 0.3s ease, transform 0.3s ease, box-shadow 0.3s ease;
         }
 
         .input-group:hover {
-          border-color: rgba(56, 189, 248, 0.2);
-          box-shadow: 0 8px 24px -12px rgba(56, 189, 248, 0.2);
+          border-color: rgba(45, 212, 255, 0.2);
+          border-left-color: var(--ion);
+          box-shadow: 0 8px 24px -12px rgba(45, 212, 255, 0.25);
         }
 
         .input-group label { 
           display: block; 
-          font-size: 11px; 
-          color: #38bdf8; 
+          font-family: 'JetBrains Mono', monospace;
+          font-size: 10.5px; 
+          color: #2dd4ff; 
           margin-bottom: 12px; 
-          font-weight: 700; 
+          font-weight: 600; 
           text-transform: uppercase; 
-          letter-spacing: 1px;
+          letter-spacing: 1.5px;
         }
 
         .input { 
           width: 100%; 
           padding: 12px 14px; 
-          border-radius: 10px; 
+          border-radius: 8px; 
           border: 1px solid rgba(255, 255, 255, 0.1); 
           background: rgba(30, 41, 59, 0.7); 
           color: #ffffff; 
@@ -1182,14 +1286,14 @@ export default function BillingConsole() {
         }
 
         .input:hover {
-          border-color: rgba(56, 189, 248, 0.35);
+          border-color: rgba(45, 212, 255, 0.35);
         }
 
         .input:focus { 
           outline: none; 
-          border-color: #38bdf8; 
+          border-color: #2dd4ff; 
           background: rgba(30, 41, 59, 1);
-          box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.15);
+          box-shadow: 0 0 0 4px rgba(45, 212, 255, 0.15), 0 0 16px rgba(45, 212, 255, 0.25);
           transform: translateY(-1px);
         }
 
@@ -1279,18 +1383,20 @@ export default function BillingConsole() {
         .item-card { 
           background: rgba(30, 41, 59, 0.5); 
           padding: 18px; 
-          border-radius: 12px; 
+          border-radius: 10px; 
           margin-bottom: 16px; 
-          border: 1px solid rgba(255, 255, 255, 0.06); 
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          border-left: 3px solid rgba(159, 91, 255, 0.35);
           animation: fadeInScale 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
           transition: border-color 0.3s ease, transform 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
         }
 
         .item-card:hover {
-          border-color: rgba(56, 189, 248, 0.25);
+          border-color: rgba(45, 212, 255, 0.25);
+          border-left-color: var(--ion);
           background: rgba(30, 41, 59, 0.75);
           transform: translateY(-2px);
-          box-shadow: 0 10px 24px -14px rgba(56, 189, 248, 0.35);
+          box-shadow: 0 10px 24px -14px rgba(45, 212, 255, 0.4);
         }
 
         .item-label { 
@@ -1305,11 +1411,13 @@ export default function BillingConsole() {
 
         .btn { 
           padding: 12px 20px; 
-          border-radius: 10px; 
+          border-radius: 8px; 
+          clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
           border: none; 
           cursor: pointer; 
           font-weight: 600; 
           font-size: 13.5px; 
+          letter-spacing: 0.02em;
           transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); 
           display: inline-flex; 
           align-items: center; 
@@ -1325,11 +1433,11 @@ export default function BillingConsole() {
         }
 
         .btn-primary { 
-          background: linear-gradient(135deg, #38bdf8 0%, #0284c7 100%); 
-          color: #0f172a; 
+          background: linear-gradient(135deg, #2dd4ff 0%, #0891b2 100%); 
+          color: #041018; 
           width: 100%; 
           font-weight: 700;
-          box-shadow: 0 4px 12px rgba(56, 189, 248, 0.3);
+          box-shadow: 0 4px 16px rgba(45, 212, 255, 0.35), 0 0 0 1px rgba(45, 212, 255, 0.25) inset;
         }
 
         .btn-primary::after {
@@ -1346,9 +1454,9 @@ export default function BillingConsole() {
         }
         
         .btn-primary:hover { 
-          background: linear-gradient(135deg, #7dd3fc 0%, #0284c7 100%); 
+          background: linear-gradient(135deg, #7ce8ff 0%, #0891b2 100%); 
           transform: translateY(-2px);
-          box-shadow: 0 8px 20px rgba(56, 189, 248, 0.45);
+          box-shadow: 0 8px 26px rgba(45, 212, 255, 0.55), 0 0 0 1px rgba(45, 212, 255, 0.4) inset;
         }
 
         .btn-secondary { 
@@ -1356,7 +1464,7 @@ export default function BillingConsole() {
           color: white; 
           width: 100%; 
           margin-bottom: 10px;
-          border: 1px solid rgba(255, 255, 255, 0.05);
+          border: 1px solid rgba(45, 212, 255, 0.12);
         }
 
         .btn-secondary:hover { 
@@ -1388,8 +1496,9 @@ export default function BillingConsole() {
 
         .history-item { 
           padding: 16px; 
-          border-radius: 12px; 
+          border-radius: 10px; 
           border: 1px solid rgba(255, 255, 255, 0.06); 
+          border-left: 3px solid rgba(45, 212, 255, 0.15);
           margin-bottom: 12px; 
           cursor: pointer; 
           background: rgba(15, 23, 42, 0.5); 
@@ -1400,14 +1509,15 @@ export default function BillingConsole() {
           align-items: center;
         }
         .history-item:hover { 
-          border-color: #38bdf8; 
+          border-color: #2dd4ff; 
+          border-left-color: var(--plasma);
           background: rgba(30, 41, 59, 0.7);
           transform: translateY(-3px) scale(1.01);
-          box-shadow: 0 10px 26px -14px rgba(56, 189, 248, 0.5);
+          box-shadow: 0 10px 26px -14px rgba(45, 212, 255, 0.55);
         }
         .history-item-content { flex-grow: 1; margin-right: 15px; }
         .history-item-header { display: flex; justify-content: space-between; margin-bottom: 8px; align-items: center; }
-        .status-badge { padding: 4px 10px; border-radius: 6px; font-size: 10px; font-weight: 800; color: white; text-transform: uppercase; letter-spacing: 0.5px; animation: badgeBreathe 2.6s ease-in-out infinite; display: inline-block; }
+        .status-badge { padding: 4px 10px; border-radius: 5px; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; font-weight: 700; color: white; text-transform: uppercase; letter-spacing: 1px; animation: badgeBreathe 2.6s ease-in-out infinite; display: inline-block; box-shadow: 0 0 10px currentColor; }
         
         .history-delete-btn {
           background: none;
@@ -1430,14 +1540,15 @@ export default function BillingConsole() {
           overflow-x: hidden;
           background: linear-gradient(145deg, #131c31 0%, #0e1626 100%); 
           padding: 25px; 
-          border-radius: 20px; 
+          border-radius: 18px; 
           display: flex; 
           flex-direction: column; 
           align-items: center;
           border: 1px solid rgba(255, 255, 255, 0.08);
-          box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.5);
+          box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.5), 0 0 60px -20px rgba(45, 212, 255, 0.15);
           animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
           animation-delay: 0.08s;
+          position: relative;
         }
 
         .invoice-wrapper .ti-paper {
@@ -1565,7 +1676,7 @@ export default function BillingConsole() {
         .summary-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13.5px; color: #94a3b8; transition: color 0.3s ease; }
         .summary-row.total { font-size: 17px; font-weight: 800; border-top: 1px dashed rgba(255,255,255,0.15); padding-top: 12px; margin-top: 6px; }
         .summary-row.advance { font-weight: bold; }
-        .summary-row.balance { font-weight: 800; font-size: 15px; padding-top: 4px; color: #38bdf8 !important; animation: pulseGlow 2.4s ease-in-out infinite; border-radius: 8px; }
+        .summary-row.balance { font-weight: 800; font-size: 15px; padding-top: 4px; color: #2dd4ff !important; animation: pulseGlow 2.4s ease-in-out infinite; border-radius: 8px; }
 
         .bg-blob {
           position: fixed;
@@ -1573,7 +1684,25 @@ export default function BillingConsole() {
           filter: blur(90px);
           pointer-events: none;
           z-index: 0;
+          mix-blend-mode: screen;
           animation: floatSlow 9s ease-in-out infinite;
+        }
+
+        ::selection {
+          background: rgba(45, 212, 255, 0.35);
+          color: #ffffff;
+        }
+
+        :focus-visible {
+          outline: 2px solid var(--ion);
+          outline-offset: 2px;
+        }
+
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb {
+          background: linear-gradient(180deg, var(--ion), var(--plasma));
+          border-radius: 10px;
         }
 
         .modal-overlay {
@@ -1589,18 +1718,22 @@ export default function BillingConsole() {
         }
         .modal-box {
           background: linear-gradient(145deg, #131c31 0%, #0e1626 100%);
-          border: 1px solid rgba(255, 255, 255, 0.12);
+          border: 1px solid rgba(45, 212, 255, 0.15);
           padding: 30px;
-          border-radius: 16px;
+          border-radius: 14px;
           max-width: 420px;
           width: 100%;
           text-align: center;
-          box-shadow: 0 25px 50px rgba(0,0,0,0.6);
+          box-shadow: 0 25px 50px rgba(0,0,0,0.6), 0 0 60px -20px rgba(45, 212, 255, 0.25);
+          position: relative;
         }
         .modal-box h4 {
           margin-top: 0;
           color: #ffffff;
-          font-size: 1.25rem;
+          font-family: 'Orbitron', 'Plus Jakarta Sans', sans-serif;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+          font-size: 1.05rem;
           margin-bottom: 12px;
         }
         .modal-box p {
@@ -1683,7 +1816,7 @@ export default function BillingConsole() {
           left: "-100px",
           width: "360px",
           height: "360px",
-          background: "rgba(56, 189, 248, 0.16)",
+          background: "rgba(45, 212, 255, 0.16)",
         }}
       />
       <div
@@ -1693,10 +1826,22 @@ export default function BillingConsole() {
           right: "-100px",
           width: "420px",
           height: "420px",
-          background: "rgba(129, 90, 245, 0.14)",
+          background: "rgba(159, 91, 255, 0.14)",
           animationDelay: "2s",
         }}
       />
+      <div
+        className="bg-blob"
+        style={{
+          top: "45%",
+          left: "50%",
+          width: "300px",
+          height: "300px",
+          background: "rgba(255, 180, 84, 0.06)",
+          animationDelay: "4s",
+        }}
+      />
+      <div className="scan-sweep" />
 
       <datalist id="inventory-list">
         {inventoryList.map((product) => (
@@ -1747,7 +1892,12 @@ export default function BillingConsole() {
                 >
                   ←
                 </LoadingButton>
-                <h3 style={{ margin: 0 }}>Billing Console</h3>
+                <div>
+                  <div className="eyebrow-tag" style={{ marginBottom: "2px" }}>
+                    <span className="dot" /> Billing Terminal
+                  </div>
+                  <h3 style={{ margin: 0 }}>Billing Console</h3>
+                </div>
               </div>
 
               <div style={{ display: "flex", gap: "10px" }}>
@@ -1757,7 +1907,7 @@ export default function BillingConsole() {
                     margin: 0,
                     padding: "10px 14px",
                     background: "rgba(59, 130, 246, 0.2)",
-                    color: "#60a5fa",
+                    color: "#7ce8ff",
                     border: "1px solid rgba(59, 130, 246, 0.3)",
                   }}
                   onClick={() => handleNavigationRequest("/inventory")}
@@ -1768,10 +1918,10 @@ export default function BillingConsole() {
                   className="input"
                   style={{
                     width: "auto",
-                    background: "rgba(56, 189, 248, 0.15)",
-                    color: "#38bdf8",
+                    background: "rgba(45, 212, 255, 0.15)",
+                    color: "#2dd4ff",
                     fontWeight: "700",
-                    border: "1px solid rgba(56, 189, 248, 0.3)",
+                    border: "1px solid rgba(45, 212, 255, 0.3)",
                   }}
                   value={formData.doc_type}
                   onChange={(e) => {
@@ -1861,9 +2011,9 @@ export default function BillingConsole() {
               <div className="field-row" style={{ marginBottom: 0 }}>
                 <div className="img-upload-card">
                   <div className="img-upload-head">
-                    <span className="item-label" style={{ color: "#38bdf8", margin: 0 }}>Company Logo</span>
+                    <span className="item-label" style={{ color: "#2dd4ff", margin: 0 }}>Company Logo</span>
                     <label className="img-upload-show">
-                      <input type="checkbox" checked={formData.show_company_logo} onChange={(e) => handleCompanyChange("show_company_logo", e.target.checked)} style={{ accentColor: "#38bdf8" }} />
+                      <input type="checkbox" checked={formData.show_company_logo} onChange={(e) => handleCompanyChange("show_company_logo", e.target.checked)} style={{ accentColor: "#2dd4ff" }} />
                       Show
                     </label>
                   </div>
@@ -1891,9 +2041,9 @@ export default function BillingConsole() {
                 </div>
                 <div className="img-upload-card">
                   <div className="img-upload-head">
-                    <span className="item-label" style={{ color: "#38bdf8", margin: 0 }}>Digital Signature</span>
+                    <span className="item-label" style={{ color: "#2dd4ff", margin: 0 }}>Digital Signature</span>
                     <label className="img-upload-show">
-                      <input type="checkbox" checked={formData.show_digital_signature} onChange={(e) => handleCompanyChange("show_digital_signature", e.target.checked)} style={{ accentColor: "#38bdf8" }} />
+                      <input type="checkbox" checked={formData.show_digital_signature} onChange={(e) => handleCompanyChange("show_digital_signature", e.target.checked)} style={{ accentColor: "#2dd4ff" }} />
                       Show
                     </label>
                   </div>
@@ -2025,7 +2175,7 @@ export default function BillingConsole() {
                 style={{ display: "flex", gap: "10px", marginBottom: "10px" }}
               >
                 <div style={{ flex: 1 }}>
-                  <span className="item-label" style={{ color: "#38bdf8" }}>Delivery Note</span>
+                  <span className="item-label" style={{ color: "#2dd4ff" }}>Delivery Note</span>
                   <input
                     className="input"
                     placeholder="Delivery Note"
@@ -2040,7 +2190,7 @@ export default function BillingConsole() {
               {/* PAYMENT MODE & TERMS SELECTION */}
               <div style={{ display: "grid", gridTemplateColumns: formData.payment_mode === "FULL" ? "1fr" : "1fr 1fr", gap: "10px", marginBottom: "10px" }}>
                 <div>
-                  <span className="item-label" style={{ color: "#38bdf8" }}>Payment Mode</span>
+                  <span className="item-label" style={{ color: "#2dd4ff" }}>Payment Mode</span>
                   <select
                     className="input"
                     value={formData.payment_mode}
@@ -2062,7 +2212,7 @@ export default function BillingConsole() {
                 
                 {formData.payment_mode !== "FULL" && !isPaidMarked && (
                   <div>
-                    <span className="item-label" style={{ color: "#38bdf8" }}>Advance Paid (₹)</span>
+                    <span className="item-label" style={{ color: "#2dd4ff" }}>Advance Paid (₹)</span>
                     <input
                       className="input"
                       type="number"
@@ -2077,7 +2227,7 @@ export default function BillingConsole() {
               <div style={{ marginBottom: "10px" }}>
                 {formData.payment_mode === "FULL" && !isPaidMarked ? (
                   <div>
-                    <span className="item-label" style={{ color: "#38bdf8" }}>Due Date</span>
+                    <span className="item-label" style={{ color: "#2dd4ff" }}>Due Date</span>
                     <input
                       type="date"
                       className="input"
@@ -2087,7 +2237,7 @@ export default function BillingConsole() {
                   </div>
                 ) : !isPaidMarked ? (
                   <div>
-                    <span className="item-label" style={{ color: "#38bdf8" }}>EMI Start Date</span>
+                    <span className="item-label" style={{ color: "#2dd4ff" }}>EMI Start Date</span>
                     <input
                       type="date"
                       className="input"
@@ -2246,7 +2396,7 @@ export default function BillingConsole() {
                     style={{
                       width: "16px",
                       height: "16px",
-                      accentColor: "#38bdf8",
+                      accentColor: "#2dd4ff",
                     }}
                   />
                   Enable GST
@@ -2319,7 +2469,7 @@ export default function BillingConsole() {
                         padding: "12px",
                         borderRadius: "10px",
                         marginBottom: "10px",
-                        borderLeft: "3px solid #38bdf8",
+                        borderLeft: "3px solid #2dd4ff",
                       }}
                     >
                       <div
@@ -2486,7 +2636,7 @@ export default function BillingConsole() {
                           {hasManualQuantity(item) && (
                             <button
                               type="button"
-                              style={{ background: "none", border: "none", color: "#38bdf8", fontSize: "9px", cursor: "pointer", padding: 0, textDecoration: "underline" }}
+                              style={{ background: "none", border: "none", color: "#2dd4ff", fontSize: "9px", cursor: "pointer", padding: 0, textDecoration: "underline" }}
                               onClick={() => handleItemChange(i, "manual_quantity", null)}
                               title="Reset to auto count from serial numbers"
                             >
@@ -2546,7 +2696,7 @@ export default function BillingConsole() {
                             borderRadius: "10px",
                             padding: "0 12px",
                             height: "41px",
-                            color: "#38bdf8",
+                            color: "#2dd4ff",
                             fontSize: "13.5px",
                             display: "flex",
                             alignItems: "center",
@@ -2572,9 +2722,9 @@ export default function BillingConsole() {
               <LoadingButton
                 className="btn btn-secondary"
                 style={{
-                  background: "rgba(56, 189, 248, 0.1)",
-                  color: "#38bdf8",
-                  border: "1px dashed rgba(56, 189, 248, 0.3)",
+                  background: "rgba(45, 212, 255, 0.1)",
+                  color: "#2dd4ff",
+                  border: "1px dashed rgba(45, 212, 255, 0.3)",
                   padding: "14px",
                 }}
                 onClick={addItem}
@@ -2611,7 +2761,7 @@ export default function BillingConsole() {
               />
               <div style={{ display: "flex", gap: "10px" }}>
                 <div style={{ flex: 1 }}>
-                  <span className="item-label" style={{ color: "#38bdf8" }}>
+                  <span className="item-label" style={{ color: "#2dd4ff" }}>
                     Installation Charges (₹)
                   </span>
                   <input
@@ -2634,7 +2784,7 @@ export default function BillingConsole() {
                   <div className="img-upload-head">
                     <span className="item-label" style={{ margin: 0 }}>Payment QR Code (Optional)</span>
                     <label className="img-upload-show">
-                      <input type="checkbox" checked={formData.show_qr_code} onChange={(e) => handleCompanyChange("show_qr_code", e.target.checked)} style={{ accentColor: "#38bdf8" }} />
+                      <input type="checkbox" checked={formData.show_qr_code} onChange={(e) => handleCompanyChange("show_qr_code", e.target.checked)} style={{ accentColor: "#2dd4ff" }} />
                       Show
                     </label>
                   </div>
@@ -2694,7 +2844,7 @@ export default function BillingConsole() {
               )}
               <div className="summary-row total" style={{ color: "white" }}>
                 <span>Grand Total:</span>{" "}
-                <span style={{ color: "#38bdf8" }}>
+                <span style={{ color: "#2dd4ff" }}>
                   ₹{grandTotal.toFixed(2)}
                 </span>
               </div>
@@ -2773,7 +2923,7 @@ export default function BillingConsole() {
                           <strong
                             style={{
                               color:
-                                inv.doc_type === "QUOTATION" ? "#fbbf24" : "#38bdf8",
+                                inv.doc_type === "QUOTATION" ? "#fbbf24" : "#2dd4ff",
                             }}
                           >
                             {inv.invoice_number}
@@ -2850,7 +3000,7 @@ export default function BillingConsole() {
                 <h3 style={{ margin: 0, color: "white", fontSize: "1.1rem" }}>
                   {formData.doc_type} #{formData.invoice_number}
                 </h3>
-                <p style={{ margin: 0, color: "#38bdf8", fontSize: "12px", fontWeight: "600" }}>
+                <p style={{ margin: 0, color: "#2dd4ff", fontSize: "12px", fontWeight: "600" }}>
                   ⚡ Live Preview
                 </p>
               </div>
@@ -2884,7 +3034,7 @@ export default function BillingConsole() {
                   style={{
                     width: "auto",
                     background: "rgba(15, 23, 42, 0.9)",
-                    color: "#38bdf8",
+                    color: "#2dd4ff",
                     fontWeight: "700",
                     padding: "10px 14px",
                   }}

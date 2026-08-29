@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 
 const MOCK_LOGS = [
@@ -34,6 +34,9 @@ export default function WhatsAppIntegration() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [filter, setFilter] = useState("all");
   const [justSent, setJustSent] = useState(false);
+  const [isDragActive, setIsDragActive] = useState(false);
+  const [now, setNow] = useState(new Date());
+  const fileInputRef = useRef(null);
 
   // Automatically catch the data passed from the AutoReminders page
   useEffect(() => {
@@ -42,6 +45,12 @@ export default function WhatsAppIntegration() {
       if (location.state.message) setMessage(location.state.message);
     }
   }, [location]);
+
+  // Live ticking clock for the connection status strip
+  useEffect(() => {
+    const tick = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(tick);
+  }, []);
 
   const handleOpenWhatsApp = () => {
     if (!phone) {
@@ -59,6 +68,50 @@ export default function WhatsAppIntegration() {
     setJustSent(true);
     window.setTimeout(() => setJustSent(false), 2200);
   };
+
+  const acceptDroppedFile = (file) => {
+    if (!file) return;
+    if (file.type !== "application/pdf") {
+      alert("Please attach a PDF file.");
+      return;
+    }
+    setSelectedFile(file);
+  };
+
+  const handleDragOver = useCallback((e) => {
+    e.preventDefault();
+    setIsDragActive(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e) => {
+    e.preventDefault();
+    setIsDragActive(false);
+  }, []);
+
+  const handleDrop = useCallback((e) => {
+    e.preventDefault();
+    setIsDragActive(false);
+    const file = e.dataTransfer?.files?.[0];
+    acceptDroppedFile(file);
+  }, []);
+
+  // --- 3D tilt + cursor spotlight for glass panels ---
+  const handleTilt = useCallback((e) => {
+    const card = e.currentTarget;
+    const rect = card.getBoundingClientRect();
+    const px = (e.clientX - rect.left) / rect.width;
+    const py = (e.clientY - rect.top) / rect.height;
+    card.style.setProperty("--rx", `${(py - 0.5) * -5}deg`);
+    card.style.setProperty("--ry", `${(px - 0.5) * 5}deg`);
+    card.style.setProperty("--mx", `${px * 100}%`);
+    card.style.setProperty("--my", `${py * 100}%`);
+  }, []);
+
+  const resetTilt = useCallback((e) => {
+    const card = e.currentTarget;
+    card.style.setProperty("--rx", `0deg`);
+    card.style.setProperty("--ry", `0deg`);
+  }, []);
 
   const filteredLogs = useMemo(
     () => (filter === "all" ? MOCK_LOGS : MOCK_LOGS.filter((l) => l.status === filter)),
@@ -90,8 +143,9 @@ export default function WhatsAppIntegration() {
 
         body {
           background:
-            radial-gradient(circle at 15% -10%, rgba(0,168,132,0.10), transparent 45%),
-            radial-gradient(circle at 100% 10%, rgba(37,211,102,0.06), transparent 40%),
+            radial-gradient(circle at 15% -10%, rgba(0,168,132,0.16), transparent 45%),
+            radial-gradient(circle at 100% 10%, rgba(37,211,102,0.10), transparent 40%),
+            radial-gradient(circle at 50% 100%, rgba(56,189,248,0.08), transparent 45%),
             var(--wa-bg);
           font-family: 'Segoe UI', 'Helvetica Neue', Inter, -apple-system, sans-serif;
           color: var(--wa-text);
@@ -99,7 +153,21 @@ export default function WhatsAppIntegration() {
           min-height: 100vh;
         }
 
-        .page-container { max-width: 1320px; margin: auto; padding: 36px 24px 60px; }
+        .bg-orb {
+          position: fixed;
+          border-radius: 50%;
+          filter: blur(110px);
+          pointer-events: none;
+          z-index: 0;
+          opacity: 0.55;
+          animation: orbDrift 16s ease-in-out infinite;
+        }
+        @keyframes orbDrift {
+          0%, 100% { transform: translate(0, 0) scale(1); }
+          50% { transform: translate(3%, -4%) scale(1.07); }
+        }
+
+        .page-container { max-width: 1320px; margin: auto; padding: 36px 24px 60px; position: relative; z-index: 1; }
 
         @keyframes fadeInUp {
           from { opacity: 0; transform: translateY(18px); }
@@ -128,6 +196,36 @@ export default function WhatsAppIntegration() {
           85% { opacity: 1; transform: translateY(0) scale(1); }
           100% { opacity: 0; transform: translateY(-6px) scale(0.98); }
         }
+        @keyframes scanSweepWA {
+          0% { transform: translateY(-10%); opacity: 0; }
+          10% { opacity: 0.5; }
+          90% { opacity: 0.5; }
+          100% { transform: translateY(110vh); opacity: 0; }
+        }
+
+        .wa-scan-line {
+          position: fixed; left: 0; right: 0; height: 140px;
+          background: linear-gradient(180deg, transparent, rgba(37, 211, 102, 0.05), transparent);
+          pointer-events: none; z-index: 0; animation: scanSweepWA 13s linear infinite;
+        }
+
+        /* ---- Tilt + spotlight mechanics ---- */
+        .tilt-panel { transform-style: preserve-3d; perspective: 900px; }
+        .panel-spotlight {
+          position: absolute; inset: 0; border-radius: inherit;
+          background: radial-gradient(460px circle at var(--mx, 50%) var(--my, 50%), rgba(255,255,255,0.08), transparent 45%);
+          opacity: 0; transition: opacity 0.3s ease; pointer-events: none;
+        }
+        .tilt-panel:hover .panel-spotlight { opacity: 1; }
+
+        .clock-pill {
+          display: inline-flex; align-items: center; gap: 6px;
+          font-size: 11.5px; color: var(--wa-text-muted);
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.08);
+          padding: 5px 12px; border-radius: 999px;
+          font-variant-numeric: tabular-nums;
+        }
 
         .header-row {
           display: flex;
@@ -138,8 +236,10 @@ export default function WhatsAppIntegration() {
           animation: fadeInUp 0.55s ease forwards;
         }
         .back-btn {
-          background: var(--wa-panel-alt);
-          border: 1px solid var(--wa-border);
+          background: rgba(255,255,255,0.06);
+          backdrop-filter: blur(14px);
+          -webkit-backdrop-filter: blur(14px);
+          border: 1px solid rgba(255,255,255,0.12);
           color: var(--wa-text);
           width: 42px; height: 42px;
           border-radius: 50%;
@@ -166,16 +266,34 @@ export default function WhatsAppIntegration() {
         @media (max-width: 720px) { .grid-layout { grid-template-columns: 1fr; } }
 
         .panel {
-          background: linear-gradient(160deg, var(--wa-panel) 0%, #0d1418 100%);
-          border: 1px solid var(--wa-border);
+          position: relative;
+          background: rgba(255, 255, 255, 0.045);
+          backdrop-filter: blur(24px) saturate(160%);
+          -webkit-backdrop-filter: blur(24px) saturate(160%);
+          border: 1px solid rgba(255,255,255,0.10);
           border-radius: 18px;
           padding: 24px;
-          box-shadow: 0 14px 34px rgba(0,0,0,0.45);
+          box-shadow:
+            0 14px 34px rgba(0,0,0,0.45),
+            inset 0 1px 0 rgba(255,255,255,0.08);
           opacity: 0;
           animation: fadeInUp 0.55s ease forwards;
           transition: border-color 0.25s ease, transform 0.25s ease, box-shadow 0.25s ease;
+          transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
         }
-        .panel:hover { border-color: rgba(0,168,132,0.35); box-shadow: 0 18px 40px rgba(0,0,0,0.5); }
+        .panel::before {
+          content: "";
+          position: absolute;
+          inset: 0;
+          border-radius: inherit;
+          padding: 1px;
+          background: linear-gradient(135deg, rgba(255,255,255,0.20), rgba(255,255,255,0) 42%, rgba(255,255,255,0) 70%, rgba(255,255,255,0.05));
+          -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+          -webkit-mask-composite: xor;
+          mask-composite: exclude;
+          pointer-events: none;
+        }
+        .panel:hover { border-color: rgba(0,168,132,0.4); transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(-3px); box-shadow: 0 20px 44px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.12); }
         .compose-panel { animation-delay: 0.08s; }
         .preview-panel { animation-delay: 0.16s; }
         .logs-panel { animation-delay: 0.24s; }
@@ -206,8 +324,9 @@ export default function WhatsAppIntegration() {
           width: 100%;
           padding: 12px 14px;
           border-radius: 10px;
-          border: 1px solid var(--wa-border);
-          background: var(--wa-input);
+          border: 1px solid rgba(255,255,255,0.10);
+          background: rgba(255,255,255,0.045);
+          backdrop-filter: blur(10px);
           color: var(--wa-text);
           font-size: 13.5px;
           box-sizing: border-box;
@@ -219,22 +338,24 @@ export default function WhatsAppIntegration() {
         .input-field:focus {
           outline: none;
           border-color: var(--wa-green-bright);
-          background: #324249;
+          background: rgba(0, 168, 132, 0.10);
           box-shadow: 0 0 0 4px rgba(37, 211, 102, 0.14);
         }
         textarea.input-field { min-height: 116px; resize: vertical; line-height: 1.5; }
 
         .upload-zone {
           position: relative;
-          border: 1.5px dashed var(--wa-border);
+          border: 1.5px dashed rgba(255,255,255,0.16);
           border-radius: 12px;
           padding: 16px;
           text-align: center;
           margin-bottom: 8px;
           transition: border-color 0.2s ease, background 0.2s ease;
-          background: rgba(255,255,255,0.015);
+          background: rgba(255,255,255,0.03);
+          backdrop-filter: blur(8px);
         }
-        .upload-zone:hover { border-color: var(--wa-green); background: rgba(0,168,132,0.05); }
+        .upload-zone:hover, .upload-zone.drag-active { border-color: var(--wa-green); background: rgba(0,168,132,0.08); }
+        .upload-zone.drag-active { box-shadow: 0 0 0 4px rgba(37, 211, 102, 0.16); transform: scale(1.01); }
         .upload-zone input[type="file"] {
           position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
         }
@@ -242,7 +363,8 @@ export default function WhatsAppIntegration() {
         .upload-hint strong { color: var(--wa-green-bright); }
         .file-chip {
           display: inline-flex; align-items: center; gap: 8px;
-          background: rgba(0,168,132,0.14);
+          background: rgba(0,168,132,0.16);
+          backdrop-filter: blur(8px);
           border: 1px solid rgba(0,168,132,0.35);
           color: #7ee6c7;
           padding: 6px 12px;
@@ -259,7 +381,7 @@ export default function WhatsAppIntegration() {
           color: #06231a;
           width: 100%;
           padding: 14px;
-          border: none;
+          border: 1px solid rgba(255,255,255,0.18);
           border-radius: 12px;
           font-weight: 800;
           font-size: 14.5px;
@@ -268,14 +390,17 @@ export default function WhatsAppIntegration() {
           display: flex; align-items: center; justify-content: center; gap: 9px;
           margin-top: 6px;
           overflow: hidden;
+          box-shadow: 0 6px 20px rgba(37, 211, 102, 0.28), inset 0 1px 0 rgba(255,255,255,0.25);
         }
-        .wa-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(37, 211, 102, 0.35); }
+        .wa-btn:hover { transform: translateY(-2px); box-shadow: 0 12px 30px rgba(37, 211, 102, 0.42); }
         .wa-btn:active { transform: translateY(0); }
 
         .toast {
           position: absolute;
           top: -46px; left: 50%; transform: translateX(-50%);
-          background: #1f2c33; color: var(--wa-green-bright);
+          background: rgba(31, 44, 51, 0.7);
+          backdrop-filter: blur(16px) saturate(160%);
+          color: var(--wa-green-bright);
           border: 1px solid rgba(37,211,102,0.4);
           padding: 8px 14px; border-radius: 999px; font-size: 12px; font-weight: 600;
           white-space: nowrap;
@@ -286,10 +411,11 @@ export default function WhatsAppIntegration() {
         /* Live preview phone mockup */
         .phone-frame {
           background:
-            radial-gradient(circle at 20% 10%, rgba(255,255,255,0.03), transparent 40%),
-            var(--wa-bg);
+            radial-gradient(circle at 20% 10%, rgba(255,255,255,0.05), transparent 40%),
+            rgba(0,0,0,0.22);
+          backdrop-filter: blur(10px);
           border-radius: 16px;
-          border: 1px solid var(--wa-border);
+          border: 1px solid rgba(255,255,255,0.10);
           padding: 14px 12px 16px;
           min-height: 300px;
           display: flex;
@@ -347,8 +473,9 @@ export default function WhatsAppIntegration() {
         /* Logs */
         .filter-tabs { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
         .filter-tab {
-          background: var(--wa-panel-alt);
-          border: 1px solid var(--wa-border);
+          background: rgba(255,255,255,0.05);
+          backdrop-filter: blur(8px);
+          border: 1px solid rgba(255,255,255,0.10);
           color: var(--wa-text-muted);
           padding: 6px 13px;
           border-radius: 999px;
@@ -358,18 +485,19 @@ export default function WhatsAppIntegration() {
           cursor: pointer;
           transition: all 0.18s ease;
         }
-        .filter-tab:hover { color: var(--wa-text); border-color: rgba(255,255,255,0.2); }
+        .filter-tab:hover { color: var(--wa-text); border-color: rgba(255,255,255,0.24); }
         .filter-tab.active {
-          background: rgba(0,168,132,0.16);
-          border-color: var(--wa-green);
+          background: linear-gradient(135deg, rgba(0,168,132,0.35), rgba(37,211,102,0.30));
+          border-color: rgba(37,211,102,0.5);
           color: var(--wa-green-bright);
+          box-shadow: 0 4px 14px rgba(0,168,132,0.25), inset 0 1px 0 rgba(255,255,255,0.15);
         }
 
         .table { width: 100%; border-collapse: collapse; }
         .table th {
           text-align: left; padding: 10px 10px; font-size: 11px; font-weight: 700;
           color: var(--wa-text-muted); text-transform: uppercase; letter-spacing: 0.5px;
-          border-bottom: 1px solid var(--wa-border);
+          border-bottom: 1px solid rgba(255,255,255,0.10);
         }
         .table tr.log-row {
           opacity: 0;
@@ -392,6 +520,10 @@ export default function WhatsAppIntegration() {
         .empty-logs { text-align: center; padding: 30px 10px; color: var(--wa-text-muted); font-size: 13px; }
       `}</style>
 
+      <div className="bg-orb" style={{ top: "-140px", left: "-120px", width: "420px", height: "420px", background: "rgba(0, 168, 132, 0.22)" }} />
+      <div className="bg-orb" style={{ bottom: "-160px", right: "-120px", width: "480px", height: "480px", background: "rgba(37, 211, 102, 0.16)", animationDelay: "4s" }} />
+      <div className="wa-scan-line" />
+
       <div className="page-container">
         <div className="header-row">
           <button className="back-btn" onClick={() => navigate('/')} aria-label="Go back">←</button>
@@ -402,11 +534,15 @@ export default function WhatsAppIntegration() {
               WhatsApp Web connected
             </span>
           </div>
+          <span className="clock-pill" style={{ marginLeft: "auto" }}>
+            🕒 {now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
+          </span>
         </div>
 
         <div className="grid-layout">
           {/* PANEL 1: Message Composer */}
-          <div className="panel compose-panel">
+          <div className="panel compose-panel tilt-panel" onMouseMove={handleTilt} onMouseLeave={resetTilt}>
+            <span className="panel-spotlight" />
             <h3 className="panel-title">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M12.031 0C5.385 0 0 5.385 0 12.031c0 2.115.552 4.175 1.6 6.002L.01 24l6.14-1.61c1.782.98 3.79 1.498 5.88 1.498 6.646 0 12.03-5.385 12.03-12.03S18.677 0 12.03 0zm5.955 17.26c-.267.75-1.536 1.44-2.118 1.503-.54.06-1.25.132-3.52-.806-2.73-1.125-4.48-3.92-4.614-4.1-.132-.18-1.103-1.464-1.103-2.793 0-1.33.69-1.986.938-2.253.25-.268.54-.336.72-.336.18 0 .36 0 .513.008.163.007.382-.06.594.453.224.542.753 1.84.82 1.98.067.14.113.307.022.487-.09.18-.135.293-.27.443-.136.15-.285.334-.406.452-.136.136-.28.283-.122.535.158.252.705 1.144 1.516 1.944 1.045 1.032 1.925 1.352 2.177 1.488.252.136.4.113.55-.06.15-.173.645-.75.82-1.01.173-.26.345-.218.577-.127.23.09 1.462.69 1.713.826.25.136.417.204.478.32.06.114.06.66-.207 1.41z"/>
@@ -432,11 +568,17 @@ export default function WhatsAppIntegration() {
             />
 
             <label className="input-label">Generated PDF</label>
-            <div className="upload-zone">
+            <div
+              className={`upload-zone ${isDragActive ? "drag-active" : ""}`}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+            >
               <input
+                ref={fileInputRef}
                 type="file"
                 accept="application/pdf"
-                onChange={(e) => setSelectedFile(e.target.files[0])}
+                onChange={(e) => acceptDroppedFile(e.target.files[0])}
               />
               <div className="upload-hint">
                 <strong>Click to browse</strong> or drop a PDF here
@@ -461,8 +603,8 @@ export default function WhatsAppIntegration() {
           </div>
 
           {/* PANEL 2: Live Preview */}
-          <div className="panel preview-panel">
-            <h3 className="panel-title">
+          <div className="panel preview-panel tilt-panel" onMouseMove={handleTilt} onMouseLeave={resetTilt}>
+            <span className="panel-spotlight" />            <h3 className="panel-title">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
                 <circle cx="12" cy="12" r="3" />
@@ -510,8 +652,8 @@ export default function WhatsAppIntegration() {
           </div>
 
           {/* PANEL 3: Message Logs */}
-          <div className="panel logs-panel">
-            <h3 className="panel-title">
+          <div className="panel logs-panel tilt-panel" onMouseMove={handleTilt} onMouseLeave={resetTilt}>
+            <span className="panel-spotlight" />            <h3 className="panel-title">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M4 6h16M4 12h16M4 18h10" />
               </svg>

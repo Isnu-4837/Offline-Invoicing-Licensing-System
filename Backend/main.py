@@ -3,16 +3,27 @@ from fastapi import File, UploadFile
 from sqlalchemy.orm import Session
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import extract, func
-from typing import List
+from typing import List, Optional
 from alembic.config import Config
 from alembic import command
+from pydantic import BaseModel
+import asyncio
 import os
 import string
 import random
 import uuid
 import hashlib
-from PIL import Image
-import io
+import base64
+import json
+import re
+import urllib.request
+import urllib.error
+import datetime
+from dotenv import load_dotenv
+
+# Load variables from a .env file (in the same folder as this script) into the
+# environment. Safe to call even if no .env file exists — it just no-ops.
+load_dotenv()
 
 import models, schemas, crud
 from db import engine, get_db, ensure_tables_created
@@ -57,7 +68,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- SYSTEM & ACTIVATION ROUTES ---
+# ---------------------------------------------------------------------------
+# SYSTEM & ACTIVATION ROUTES
+# ---------------------------------------------------------------------------
+# --- SYSTEM & ACTIVATION ROUTES (INSTALL-BOUND LICENSING) ---
+import os
+
+# Path to the license file stored in the app's installation directory
+LICENSE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".app_license")
 
 @app.get("/system/machine-id")
 def get_machine_id_endpoint():
@@ -66,35 +84,73 @@ def get_machine_id_endpoint():
 
 @app.get("/system/status")
 def get_system_status(db: Session = Depends(get_db)):
-    """Frontend calls this to see if the app is locked or unlocked."""
-    return crud.check_application_status(db)
+    """
+    Checks if this specific installation is licensed.
+    If the app was uninstalled/reinstalled, .app_license is deleted, locking the app.
+    """
+    if not os.path.exists(LICENSE_FILE):
+        return {"is_activated": False, "message": "Fresh install detected. Activation required."}
+    
+    try:
+        with open(LICENSE_FILE, "r", encoding="utf-8") as f:
+            saved_key = f.read().strip()
+
+        # Validate that the saved key matches THIS physical machine
+        machine_id = get_machine_id()
+        expected_hash = hashlib.sha256((machine_id + APP_SECRET).encode()).hexdigest().upper()
+        expected_base = expected_hash[:12]
+        total = sum(ord(c) for c in expected_base)
+        CHARS = string.ascii_uppercase + string.digits
+        char1 = CHARS[total % len(CHARS)]
+        char2 = CHARS[(total * 7) % len(CHARS)]
+        expected_key = expected_base + char1 + char2
+        
+        if saved_key.replace("-", "").upper() == expected_key:
+            return {"is_activated": True}
+        else:
+            return {"is_activated": False, "message": "License invalid for this machine."}
+            
+    except Exception as e:
+        print(f"[License Read Error]: {e}")
+        return {"is_activated": False}
 
 @app.post("/system/activate")
 def activate_system(req: schemas.ActivationRequest, db: Session = Depends(get_db)):
-    """Verifies the key is mathematically bound to this specific physical computer."""
+    """
+    Verifies the key against the machine hardware and creates the local installation license.
+    """
     machine_id = get_machine_id()
     
-    # 1. Recreate the expected hash for THIS specific computer
     expected_hash = hashlib.sha256((machine_id + APP_SECRET).encode()).hexdigest().upper()
     expected_base = expected_hash[:12]
-    
-    # 2. Recreate the checksum
     total = sum(ord(c) for c in expected_base)
     CHARS = string.ascii_uppercase + string.digits
     char1 = CHARS[total % len(CHARS)]
     char2 = CHARS[(total * 7) % len(CHARS)]
     expected_key = expected_base + char1 + char2
     
-    # 3. Check if the provided key matches the expected hardware key
-    if req.key.replace("-", "").upper() != expected_key:
+    clean_key = req.key.replace("-", "").upper()
+    if clean_key != expected_key:
         raise HTTPException(status_code=400, detail="Invalid Key. This key is not licensed for this machine.")
+    
+    # Save the license directly inside the application installation folder
+    try:
+        with open(LICENSE_FILE, "w", encoding="utf-8") as f:
+            f.write(clean_key)
+    except Exception as e:
+        print(f"[License Write Error]: {e}")
+        raise HTTPException(status_code=500, detail="Failed to save local license file.")
         
-    result = crud.activate_application(db, req.key)
-    if not result.get("success"):
-        raise HTTPException(status_code=400, detail=result.get("message", "Activation failed."))
-    return result
+    try:
+        crud.activate_application(db, req.key)
+    except Exception:
+        pass
 
-# --- REPORTS ROUTES ---
+    return {"success": True, "message": "Application successfully activated!"}
+
+# ---------------------------------------------------------------------------
+# REPORTS ROUTES
+# ---------------------------------------------------------------------------
 
 @app.get("/reports/sales")
 def get_sales_report(timeframe: str, year: int, month: int = None, db: Session = Depends(get_db)):
@@ -118,7 +174,9 @@ def get_sales_report(timeframe: str, year: int, month: int = None, db: Session =
         "invoices": invoices
     }
 
-# --- INVOICE ROUTES ---
+# ---------------------------------------------------------------------------
+# INVOICE ROUTES
+# ---------------------------------------------------------------------------
 
 @app.post("/invoices", response_model=None)
 def create_invoice(invoice: schemas.InvoiceCreate, db: Session = Depends(get_db)):
@@ -158,7 +216,9 @@ def delete_invoice_endpoint(invoice_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Invoice not found")
     return {"message": "Invoice deleted successfully"}
 
-# --- NEW ERP MODULE ROUTES ---
+# ---------------------------------------------------------------------------
+# ERP MODULE ROUTES (Purchases, Vendors, Follow-ups, Stock)
+# ---------------------------------------------------------------------------
 
 @app.get("/purchases")
 def get_purchase_invoices(db: Session = Depends(get_db)):
@@ -205,8 +265,9 @@ def complete_followup(f_id: int, db: Session = Depends(get_db)):
 def get_stock_audit(db: Session = Depends(get_db)):
     return crud.get_stock_history(db)
 
-
-# --- INVENTORY ROUTES ---
+# ---------------------------------------------------------------------------
+# INVENTORY ROUTES
+# ---------------------------------------------------------------------------
 
 @app.get("/inventory")
 def list_inventory(db: Session = Depends(get_db)):
@@ -247,8 +308,9 @@ def delete_inventory_item(item_id: int, db: Session = Depends(get_db)):
             detail="Cannot delete this product because it is linked to an existing invoice."
         )    
 
-
-# --- GST REPORTING ROUTES ---
+# ---------------------------------------------------------------------------
+# GST REPORTING ROUTES
+# ---------------------------------------------------------------------------
 
 @app.get("/export/gstr1/{month}/{year}")
 def export_gstr1_report(month: int, year: int, db: Session = Depends(get_db)):
@@ -269,28 +331,18 @@ def export_gstr1_report(month: int, year: int, db: Session = Depends(get_db)):
         "data": report_data
     }
 
-
-# --- DASHBOARD ROUTES ---
+# ---------------------------------------------------------------------------
+# DASHBOARD ROUTES
+# ---------------------------------------------------------------------------
 
 @app.get("/dashboard/stats")
 def get_dashboard_stats(db: Session = Depends(get_db)):
     """Calculates overall business metrics directly using SQL aggregation."""
-    
-    stats = db.query(
-        func.count(models.Invoice.id).label("total_invoices"),
-        func.sum(models.Invoice.total_amount).label("total_sales"),
-        func.sum(models.Invoice.remaining_amount).label("total_due")
-    ).filter(
-        models.Invoice.doc_type == "INVOICE"
-    ).first()
-
-    total_sales = stats.total_sales or 0.0
-    total_due = stats.total_due or 0.0
-    total_invoices = stats.total_invoices or 0
-    total_collected = total_sales - total_due
-    
-    # Overriding to use the general dashboard statistics endpoint
     return crud.get_dashboard_statistics(db)
+
+# ---------------------------------------------------------------------------
+# AMC ROUTES
+# ---------------------------------------------------------------------------
 
 @app.get("/amc")
 def get_amc(db: Session = Depends(get_db)):
@@ -300,39 +352,244 @@ def get_amc(db: Session = Depends(get_db)):
 def add_amc(data: schemas.AmcContractCreate, db: Session = Depends(get_db)):
     return crud.create_amc_contract(db, data)
 
+# ---------------------------------------------------------------------------
+# AI EXTRACTION ROUTES  (Gemini 1.5 Flash — REST API, no SDK required)
+# ---------------------------------------------------------------------------
 
-# --- AI OCR RECEIPT EXTRACTION ROUTE ---
+class AIPayload(BaseModel):
+    file_name: Optional[str] = "document.pdf"
+    mime_type: Optional[str] = "application/pdf"
+    file_base64: str
+
+# Keep old name as alias so any existing call-sites still work
+AIPurchasePayload = AIPayload
+
+
+def _parse_gemini_json(response_text: str) -> dict:
+    """
+    Robustly parses JSON from a Gemini response.
+    Handles both clean JSON and markdown-fenced ```json ... ``` blocks.
+    """
+    text = response_text.strip()
+
+    # Strip markdown code fences if present
+    fenced = re.search(r"```(?:json)?\s*([\s\S]+?)```", text)
+    if fenced:
+        text = fenced.group(1).strip()
+
+    # Try direct parse first
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Last resort: find the first JSON object/array in the string
+    obj_match = re.search(r"\{[\s\S]+\}", text)
+    if obj_match:
+        try:
+            return json.loads(obj_match.group(0))
+        except json.JSONDecodeError:
+            pass
+
+    raise ValueError(f"Could not parse JSON from Gemini response: {text[:200]}")
+
+
+def _sync_extract_with_gemini(base64_data: str, mime_type: str, prompt: str) -> dict:
+    """
+    Sends an image/PDF to Gemini 1.5 Flash via the REST API and returns
+    structured JSON. Runs synchronously — call via asyncio.to_thread().
+
+    API key is read from the GEMINI_API_KEY environment variable.
+    Set it in your .env file: GEMINI_API_KEY=AIza...
+    """
+    api_key = os.environ.get("GEMINI_API_KEY", "")
+    if not api_key:
+        raise HTTPException(
+            status_code=500,
+            detail="GEMINI_API_KEY is not set. Add it to your .env file and restart the server."
+        )
+
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/"
+        f"models/gemini-1.5-flash:generateContent?key={api_key}"
+    )
+
+    payload = {
+        "contents": [{
+            "parts": [
+                {"text": prompt},
+                {"inline_data": {"mime_type": mime_type, "data": base64_data}}
+            ]
+        }],
+        # Request JSON output — Gemini honours this for text-only responses;
+        # for multimodal requests it may still return plain text, so we parse
+        # defensively via _parse_gemini_json().
+        "generationConfig": {"response_mime_type": "application/json"}
+    }
+
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=45) as response:
+            res_data = json.loads(response.read().decode("utf-8"))
+
+        # Navigate the Gemini response structure
+        raw_text = res_data["candidates"][0]["content"]["parts"][0]["text"]
+        return _parse_gemini_json(raw_text)
+
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode("utf-8", errors="replace")
+        print(f"\n[Gemini API Error] HTTP {e.code}: {error_body}\n")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Gemini API returned HTTP {e.code}. Check the backend terminal for details."
+        )
+    except (KeyError, IndexError) as e:
+        print(f"\n[Gemini Parse Error] Unexpected response structure: {e}\n")
+        raise HTTPException(
+            status_code=502,
+            detail="Gemini returned an unexpected response format. Please try again."
+        )
+    except ValueError as e:
+        print(f"\n[JSON Parse Error] {e}\n")
+        raise HTTPException(
+            status_code=502,
+            detail="Could not parse structured data from the AI response. Try a clearer image."
+        )
+    except Exception as e:
+        print(f"\n[Network/System Error] {type(e).__name__}: {e}\n")
+        raise HTTPException(
+            status_code=500,
+            detail="Could not reach the AI service. Check your internet connection and try again."
+        )
+
+
+# ---------------------------------------------------------------------------
+# POST /purchases/extract-ai  — Purchase Invoice AI autofill
+# ---------------------------------------------------------------------------
+
+@app.post("/purchases/extract-ai")
+async def extract_purchase_invoice_ai(payload: AIPayload):
+    """
+    Extracts header-level fields (vendor, bill number, date, total) from a
+    purchase invoice image or PDF using Gemini 1.5 Flash vision.
+    """
+    if not payload.file_base64:
+        raise HTTPException(status_code=400, detail={"message": "No file data received."})
+
+    prompt = """
+    Analyze this purchase invoice or bill image and extract these exact fields:
+    - vendor_name: The name of the supplier or company that issued the invoice.
+    - bill_number: The invoice or bill number (string).
+    - bill_date: The date of the invoice in YYYY-MM-DD format.
+    - total_amount: The final grand total as a plain number (no currency symbols).
+    - status: Always set this to "UNPAID".
+
+    Return ONLY a valid JSON object with exactly these keys. If a field is not visible, use null.
+    """
+    return await asyncio.to_thread(
+        _sync_extract_with_gemini,
+        payload.file_base64,
+        payload.mime_type or "image/jpeg",
+        prompt,
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /amc/extract-ai  — AMC Contract AI autofill
+# ---------------------------------------------------------------------------
+
+@app.post("/amc/extract-ai")
+async def extract_amc_ai(payload: AIPayload):
+    """
+    Extracts AMC contract fields (client name, contact, product, dates) from
+    a warranty card, service report, or contract image/PDF using Gemini.
+    """
+    if not payload.file_base64:
+        raise HTTPException(status_code=400, detail={"message": "No file data received."})
+
+    prompt = """
+    Analyze this warranty card or AMC (Annual Maintenance Contract) document and extract:
+    - client_name: Full name of the customer or client.
+    - contact_number: Phone or mobile number as a string (digits only, no spaces or dashes).
+    - product_details: Brief description of the product, device, or service covered.
+    - install_date: The installation or contract start date in YYYY-MM-DD format.
+    - expiry_date: The warranty or contract expiry date in YYYY-MM-DD format.
+
+    Return ONLY a valid JSON object with exactly these keys. Use null for any field not found.
+    """
+    return await asyncio.to_thread(
+        _sync_extract_with_gemini,
+        payload.file_base64,
+        payload.mime_type or "image/jpeg",
+        prompt,
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /ocr/receipt  — Inventory receipt line-item extraction
+# ---------------------------------------------------------------------------
+
+RECEIPT_ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp", "image/bmp", "application/pdf"}
+
 @app.post("/ocr/receipt")
 async def ocr_receipt(file: UploadFile = File(...)):
     """
-    Receives an image of a vendor bill/receipt, processes it via OCR/Vision AI,
-    and extracts structured line items for inventory auto-filling.
+    Extracts individual line items from a receipt or inventory invoice using
+    Gemini 1.5 Flash vision. Returns a structured list of items ready to be
+    added to the inventory.
     """
-    try:
-        contents = await file.read()
-        image = Image.open(io.BytesIO(contents))
-        
-        # Extracted line items corresponding to the tax invoice structure (HP & ASUS laptops)
-        extracted_items = [
+    if not file.content_type or file.content_type not in RECEIPT_ALLOWED_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail={"message": "Please upload a JPG, PNG, WEBP, BMP, or PDF file."}
+        )
+
+    contents = await file.read()
+    if not contents:
+        raise HTTPException(
+            status_code=400,
+            detail={"message": "Uploaded file is empty."}
+        )
+
+    base64_data = base64.b64encode(contents).decode("utf-8")
+
+    prompt = """
+    Extract ALL individual line items from this receipt or purchase invoice.
+    Return ONLY valid JSON with an "items" array. Each element MUST have:
+    {
+        "items": [
             {
-                "description": "HP",
-                "hsn_code": "KSBJDFBLS",
+                "description": "Product name or description",
+                "hsn_code": "4-8 digit HSN/SAC code if visible, otherwise empty string",
                 "quantity": 1.0,
-                "price": 50000.0,
-                "gst_rate": 18.0
-            },
-            {
-                "description": "ASUS",
-                "hsn_code": "JSRBGGSOGG",
-                "quantity": 1.0,
-                "price": 75000.0,
+                "price": 0.00,
+                "unit": "Pcs",
                 "gst_rate": 18.0
             }
         ]
-        
-        return {
-            "success": True,
-            "items": extracted_items
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"OCR Processing failed: {str(e)}")
+    }
+    Rules:
+    - Skip header/footer rows (totals, taxes, discounts) — only include actual product lines.
+    - quantity and price must be plain numbers (no currency symbols).
+    - gst_rate is a percentage number (e.g. 18.0 for 18%).
+    - If GST rate is not visible, default to 18.0.
+    - If unit is not visible, default to "Pcs".
+    """
+
+    extracted_data = await asyncio.to_thread(
+        _sync_extract_with_gemini,
+        base64_data,
+        file.content_type or "image/jpeg",
+        prompt,
+    )
+
+    return {
+        "success": True,
+        "items": extracted_data.get("items", [])
+    }

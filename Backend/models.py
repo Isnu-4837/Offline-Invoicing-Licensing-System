@@ -54,6 +54,7 @@ class AmcContractModel(Base):
     __tablename__ = "amc_contracts"
     id = Column(Integer, primary_key=True, index=True)
     client_name = Column(String, index=True)
+    contact_number = Column(String, nullable=True)
     product_details = Column(String)
     install_date = Column(String)
     expiry_date = Column(String)

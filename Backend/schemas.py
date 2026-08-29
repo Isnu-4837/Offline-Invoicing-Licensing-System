@@ -32,6 +32,7 @@ class FollowUpCreate(BaseModel):
 
 class AmcContractCreate(BaseModel):
     client_name: str
+    contact_number: Optional[str] = None
     product_details: str
     install_date: str
     expiry_date: str
@@ -118,3 +119,4 @@ class InvoiceResponse(InvoiceCreate):
     class Config:
         orm_mode = True
         from_attributes = True
+

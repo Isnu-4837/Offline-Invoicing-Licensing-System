@@ -2,358 +2,386 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>License Key Generator</title>
+<title>Quantum Key Generator</title>
 <style>
-  :root{
-    --bg-0:#060912;
-    --bg-1:#0b1220;
-    --panel:#0f1830;
-    --panel-2:#121d3a;
-    --line:rgba(148,197,255,0.14);
-    --cyan:#38bdf8;
-    --cyan-2:#7dd3fc;
-    --violet:#818cf8;
-    --mint:#34d399;
-    --ink:#e6edf7;
-    --ink-dim:#8fa2c2;
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=JetBrains+Mono:wght@400;700;800&family=Inter:wght@300;400;600&display=swap');
+
+  :root {
+    --space-bg: #03040b;
+    --glass-bg: rgba(9, 14, 23, 0.65);
+    --primary: #00f0ff;
+    --primary-glow: rgba(0, 240, 255, 0.4);
+    --secondary: #7000ff;
+    --accent: #ff0055;
+    --text-main: #e2f1ff;
+    --text-dim: #647b9e;
   }
 
-  *{ box-sizing:border-box; }
-
-  html,body{ height:100%; margin:0; }
-
-  body{
-    background: radial-gradient(1200px 700px at 20% 15%, #0c1730 0%, var(--bg-0) 55%),
-                var(--bg-0);
-    color: var(--ink);
-    font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, Inter, Helvetica, Arial, sans-serif;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    min-height:100vh;
-    overflow:hidden;
-    position:relative;
+  @property --border-angle {
+    syntax: "<angle>";
+    initial-value: 0deg;
+    inherits: false;
   }
 
-  /* Drifting circuit-dot grid */
-  .grid-field{
-    position:fixed; inset:-10%;
-    background-image: radial-gradient(rgba(125,211,252,0.16) 1px, transparent 1px);
-    background-size: 34px 34px;
-    animation: driftGrid 40s linear infinite;
-    mask-image: radial-gradient(700px 500px at 50% 45%, black 10%, transparent 75%);
-    pointer-events:none;
-  }
-  @keyframes driftGrid{
-    0%{ transform: translate(0,0); }
-    100%{ transform: translate(-34px,-34px); }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    background-color: var(--space-bg);
+    color: var(--text-main);
+    font-family: 'Inter', sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    perspective: 1200px;
   }
 
-  /* Soft ambient glow orbs */
-  .orb{
-    position:fixed; border-radius:50%; filter: blur(70px); opacity:.35; pointer-events:none;
-    animation: floatOrb 12s ease-in-out infinite;
-  }
-  .orb-a{ width:380px; height:380px; background:var(--cyan); top:-120px; left:-100px; }
-  .orb-b{ width:340px; height:340px; background:var(--violet); bottom:-140px; right:-90px; animation-delay:-6s; }
-  @keyframes floatOrb{
-    0%,100%{ transform: translateY(0) scale(1); }
-    50%{ transform: translateY(-24px) scale(1.06); }
-  }
-
-  .card{
-    position:relative;
-    width:400px;
-    padding:38px 34px 30px;
-    background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0)) , var(--panel);
-    border-radius: 18px;
-    border: 1px solid var(--line);
-    box-shadow: 0 30px 60px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.02) inset;
-    text-align:center;
-    animation: cardIn .7s cubic-bezier(.16,1,.3,1);
-    overflow:hidden;
-  }
-  @keyframes cardIn{
-    from{ opacity:0; transform: translateY(18px) scale(.97); }
-    to{ opacity:1; transform:none; }
+  /* --- Animated Perspective Grid --- */
+  .cyber-grid {
+    position: absolute;
+    width: 200vw;
+    height: 200vh;
+    bottom: -40vh;
+    left: -50vw;
+    background-image: 
+      linear-gradient(rgba(0, 240, 255, 0.1) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0, 240, 255, 0.1) 1px, transparent 1px);
+    background-size: 50px 50px;
+    transform: rotateX(75deg);
+    animation: grid-scroll 3s linear infinite;
+    mask-image: radial-gradient(ellipse at 50% 50%, black 10%, transparent 60%);
+    -webkit-mask-image: radial-gradient(ellipse at 50% 50%, black 10%, transparent 60%);
+    z-index: 0;
   }
 
-  /* corner brackets, keycard style */
-  .card::before, .card::after,
-  .bracket-l, .bracket-r{
-    content:""; position:absolute; width:16px; height:16px; border: 2px solid var(--cyan); opacity:.7;
-  }
-  .card::before{ top:10px; left:10px; border-right:none; border-bottom:none; border-top-left-radius:6px; }
-  .card::after{ top:10px; right:10px; border-left:none; border-bottom:none; border-top-right-radius:6px; }
-  .bracket-l{ bottom:10px; left:10px; border-right:none; border-top:none; border-bottom-left-radius:6px; }
-  .bracket-r{ bottom:10px; right:10px; border-left:none; border-top:none; border-bottom-right-radius:6px; }
-
-  /* scanning sweep line, plays on generate */
-  .scan{
-    position:absolute; left:0; right:0; top:0; height:2px;
-    background: linear-gradient(90deg, transparent, var(--cyan-2), transparent);
-    box-shadow: 0 0 12px 2px rgba(56,189,248,.7);
-    transform: translateY(-10px);
-    opacity:0;
-  }
-  .scan.run{ animation: sweep 1.05s ease-in-out; }
-  @keyframes sweep{
-    0%{ opacity:0; transform: translateY(-6px); }
-    10%{ opacity:1; }
-    90%{ opacity:1; }
-    100%{ opacity:0; transform: translateY(400px); }
+  @keyframes grid-scroll {
+    0% { transform: rotateX(75deg) translateY(0); }
+    100% { transform: rotateX(75deg) translateY(50px); }
   }
 
-  .eyebrow{
-    display:inline-flex; align-items:center; gap:6px;
-    font-size:11px; letter-spacing:.14em; font-weight:700;
-    color: var(--mint); text-transform:uppercase;
-    background: rgba(52,211,153,0.08);
-    border:1px solid rgba(52,211,153,0.25);
-    padding:5px 10px; border-radius:100px;
-    margin-bottom:16px;
+  /* --- Ambient Nebula Glows --- */
+  .nebula {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(100px);
+    z-index: 1;
+    pointer-events: none;
+    animation: pulse-nebula 10s ease-in-out infinite alternate;
   }
-  .eyebrow .dot{
-    width:6px; height:6px; border-radius:50%; background:var(--mint);
-    box-shadow:0 0 8px var(--mint);
-    animation: pulseDot 1.6s ease-in-out infinite;
-  }
-  @keyframes pulseDot{
-    0%,100%{ opacity:1; transform:scale(1); }
-    50%{ opacity:.4; transform:scale(.7); }
+  .nebula-1 { width: 450px; height: 450px; background: rgba(0, 240, 255, 0.15); top: -10%; left: -5%; }
+  .nebula-2 { width: 550px; height: 550px; background: rgba(112, 0, 255, 0.15); bottom: -20%; right: -5%; animation-delay: -5s; }
+
+  @keyframes pulse-nebula {
+    0% { transform: scale(1); opacity: 0.5; }
+    100% { transform: scale(1.3); opacity: 0.8; }
   }
 
-  h2{
-    margin:0 0 6px;
-    font-size:22px; letter-spacing:-.01em;
-    background: linear-gradient(120deg, var(--cyan-2), var(--violet));
-    -webkit-background-clip:text; background-clip:text; color:transparent;
-  }
-  p.sub{ color:var(--ink-dim); font-size:13px; margin:0 0 22px; line-height:1.5; }
-
-  /* --- NEW MACHINE ID INPUT STYLES --- */
-  .input-label {
-    text-align: left;
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--ink-dim);
-    margin-bottom: 6px;
-    margin-left: 2px;
-  }
-  #machineIdField {
-    width: 100%;
-    padding: 12px 14px;
-    background: rgba(11, 18, 32, 0.6);
-    border: 1px solid var(--line);
-    color: var(--ink);
-    border-radius: 10px;
-    font-family: ui-monospace, "SFMono-Regular", "Cascadia Code", Consolas, monospace;
-    font-size: 14px;
-    outline: none;
-    text-align: center;
-    transition: border-color .25s, box-shadow .25s;
-    margin-bottom: 18px;
-  }
-  #machineIdField:focus {
-    border-color: var(--violet);
-    box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.15);
-  }
-  #machineIdField::placeholder{ color:#3c4a68; }
-
-  .key-wrap{ position:relative; margin-bottom:18px; }
-
-  #keyField{
-    width:100%;
-    padding:16px 14px;
-    background: var(--bg-1);
-    border: 1px solid var(--line);
-    color: var(--cyan-2);
-    border-radius:10px;
-    text-align:center;
-    font-family: ui-monospace, "SFMono-Regular", "Cascadia Code", Consolas, "Courier New", monospace;
-    font-size:19px; font-weight:700; letter-spacing:3px;
-    outline:none;
-    transition: border-color .25s, box-shadow .25s;
-  }
-  #keyField::placeholder{ color:#3c4a68; letter-spacing:2px; }
-  #keyField.active{
-    border-color: var(--cyan);
-    box-shadow: 0 0 0 3px rgba(56,189,248,0.12), 0 0 22px rgba(56,189,248,0.25);
+  /* --- 3D Parallax Container --- */
+  .tilt-wrapper {
+    position: relative;
+    z-index: 10;
+    transform-style: preserve-3d;
+    transition: transform 0.1s ease-out;
   }
 
-  .btn{
-    width:100%; padding:13px; border:none; border-radius:10px;
-    font-weight:700; font-size:13.5px; letter-spacing:.01em; cursor:pointer;
-    margin-bottom:10px;
-    position:relative; overflow:hidden;
-    transition: transform .15s ease, box-shadow .25s ease, filter .2s ease;
+  /* --- Main Glass Card with Rotating Gradient Border --- */
+  .card {
+    width: 480px;
+    position: relative;
+    padding: 40px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border-radius: 20px;
+    box-shadow: 
+      0 30px 60px rgba(0, 0, 0, 0.8),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    transform: translateZ(30px);
   }
-  .btn:active{ transform: scale(.98); }
 
-  .btn-gen{
-    background: linear-gradient(135deg, var(--cyan) 0%, var(--violet) 100%);
-    color:#04101f;
-    box-shadow: 0 10px 24px rgba(56,189,248,0.25);
+  /* Rotating Border Effect */
+  .card::before {
+    content: "";
+    position: absolute;
+    inset: -2px;
+    border-radius: 22px;
+    background: conic-gradient(
+      from var(--border-angle),
+      var(--secondary),
+      var(--primary),
+      var(--secondary)
+    );
+    z-index: -1;
+    animation: rotate-border 4s linear infinite;
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
   }
-  .btn-gen:hover{ filter:brightness(1.08); box-shadow: 0 12px 30px rgba(56,189,248,0.4); }
 
-  .btn-copy{
-    background: var(--panel-2);
-    color: var(--ink);
-    border: 1px solid var(--line);
+  @keyframes rotate-border {
+    to { --border-angle: 360deg; }
   }
-  .btn-copy:hover{ background:#182749; border-color: rgba(148,197,255,0.3); }
-  .btn-copy.done{ color: var(--mint); border-color: rgba(52,211,153,.4); }
 
-  /* ripple */
-  .ripple{
-    position:absolute; border-radius:50%; background: rgba(255,255,255,.5);
-    transform: scale(0); animation: rip .55s ease-out forwards; pointer-events:none;
+  /* Decorative Crosshairs */
+  .crosshair {
+    position: absolute; width: 15px; height: 15px; border: 2px solid var(--primary); opacity: 0.5;
   }
-  @keyframes rip{ to{ transform:scale(3); opacity:0; } }
+  .tl { top: 15px; left: 15px; border-right: 0; border-bottom: 0; }
+  .tr { top: 15px; right: 15px; border-left: 0; border-bottom: 0; }
+  .bl { bottom: 15px; left: 15px; border-right: 0; border-top: 0; }
+  .br { bottom: 15px; right: 15px; border-left: 0; border-top: 0; }
 
-  .msg{
-    min-height:16px; font-size:12px;
-    display:flex; align-items:center; justify-content:center; gap:6px;
-    opacity:0; transform: translateY(4px);
-    transition: opacity .3s, transform .3s;
+  /* Scanner Line */
+  .scanner {
+    position: absolute; top: 0; left: 0; right: 0; height: 100%;
+    background: linear-gradient(to bottom, transparent, var(--primary-glow) 50%, transparent);
+    transform: translateY(-100%);
+    opacity: 0; pointer-events: none; mix-blend-mode: overlay;
   }
-  .msg.show{ opacity:1; transform:none; }
+  .scanner.active { animation: scan 1.5s cubic-bezier(0.4, 0, 0.2, 1); }
+  @keyframes scan {
+    0% { transform: translateY(-100%); opacity: 0; }
+    10% { opacity: 1; }
+    90% { opacity: 1; }
+    100% { transform: translateY(100%); opacity: 0; }
+  }
 
-  .check{
-    width:14px; height:14px; flex-shrink:0;
+  /* --- Typography --- */
+  .badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    color: var(--primary); background: rgba(0, 240, 255, 0.05);
+    border: 1px solid rgba(0, 240, 255, 0.2); padding: 6px 12px;
+    border-radius: 100px; text-transform: uppercase; letter-spacing: 2px;
+    margin-bottom: 20px; box-shadow: 0 0 10px rgba(0, 240, 255, 0.1);
   }
-  .check path{
-    stroke-dasharray: 20; stroke-dashoffset:20;
-    animation: draw .35s ease forwards .1s;
+  .badge .ping {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--primary);
+    box-shadow: 0 0 8px var(--primary); animation: ping 1.5s infinite;
   }
-  @keyframes draw{ to{ stroke-dashoffset:0; } }
+  @keyframes ping { 50% { opacity: 0.2; transform: scale(0.8); } }
+
+  h1 {
+    font-family: 'Orbitron', sans-serif; font-size: 28px; font-weight: 800;
+    text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px;
+    background: linear-gradient(to right, #fff, var(--primary));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 8px rgba(0, 240, 255, 0.3));
+  }
+  
+  p.desc { color: var(--text-dim); font-size: 14px; margin-bottom: 30px; letter-spacing: 0.5px; }
+
+  /* --- Inputs --- */
+  .field-group { text-align: left; margin-bottom: 24px; position: relative; }
+  .label {
+    display: block; font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    color: var(--primary); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px;
+  }
+
+  .input-base {
+    width: 100%; background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #fff; font-family: 'JetBrains Mono', monospace; outline: none; transition: all 0.3s ease;
+  }
+
+  #machineId {
+    padding: 16px; font-size: 15px; border-radius: 8px;
+    box-shadow: inset 0 2px 10px rgba(0,0,0,0.5);
+  }
+  #machineId:focus {
+    border-color: var(--primary); background: rgba(0, 240, 255, 0.03);
+    box-shadow: 0 0 0 3px rgba(0, 240, 255, 0.1), inset 0 2px 10px rgba(0,0,0,0.5);
+  }
+
+  #keyOutput {
+    padding: 20px 10px; font-size: 22px; font-weight: 800; text-align: center;
+    letter-spacing: 4px; border-radius: 8px; color: var(--text-dim);
+  }
+  #keyOutput.decrypted {
+    color: #fff; border-color: var(--primary);
+    text-shadow: 0 0 10px var(--primary-glow);
+    background: linear-gradient(90deg, transparent, rgba(0, 240, 255, 0.05), transparent);
+  }
+
+  /* --- Buttons --- */
+  .btn-sys {
+    width: 100%; padding: 18px; font-family: 'Orbitron', sans-serif; font-size: 14px;
+    font-weight: 700; letter-spacing: 3px; text-transform: uppercase; cursor: pointer;
+    border: none; border-radius: 8px; position: relative; overflow: hidden;
+    transition: all 0.2s ease; margin-bottom: 12px;
+  }
+
+  .btn-generate {
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    color: #fff; text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+    box-shadow: 0 10px 20px rgba(112, 0, 255, 0.3);
+  }
+  .btn-generate::before {
+    content: ''; position: absolute; top: 0; left: -100%; width: 50%; height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+    transform: skewX(-25deg); animation: shine 3s infinite;
+  }
+  @keyframes shine { 0% { left: -100%; } 20% { left: 200%; } 100% { left: 200%; } }
+  
+  .btn-generate:hover { transform: translateY(-2px); box-shadow: 0 15px 25px rgba(0, 240, 255, 0.4); filter: brightness(1.1); }
+  .btn-generate:active { transform: translateY(1px); }
+
+  .btn-copy {
+    background: rgba(255, 255, 255, 0.03); color: var(--text-main);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  .btn-copy:hover { background: rgba(0, 240, 255, 0.08); border-color: var(--primary); color: var(--primary); }
+  .btn-copy.copied { background: rgba(52, 211, 153, 0.1); border-color: #34d399; color: #34d399; }
+
+  /* --- Status Message --- */
+  .status-msg {
+    min-height: 20px; font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    opacity: 0; transform: translateY(10px); transition: all 0.3s ease; margin-top: 10px;
+  }
+  .status-msg.show { opacity: 1; transform: translateY(0); }
+  .status-err { color: var(--accent); }
+  .status-ok { color: #34d399; }
 </style>
 </head>
 <body>
-  <div class="grid-field"></div>
-  <div class="orb orb-a"></div>
-  <div class="orb orb-b"></div>
+  <div class="cyber-grid"></div>
+  <div class="nebula nebula-1"></div>
+  <div class="nebula nebula-2"></div>
 
-  <div class="card" id="card">
-    <div class="scan" id="scan"></div>
-    <span class="bracket-l"></span><span class="bracket-r"></span>
+  <div class="tilt-wrapper" id="tiltNode">
+    <div class="card">
+      <div class="crosshair tl"></div><div class="crosshair tr"></div>
+      <div class="crosshair bl"></div><div class="crosshair br"></div>
+      <div class="scanner" id="scanner"></div>
 
-    <div class="eyebrow"><span class="dot"></span>Hardware Binding</div>
+      <div style="text-align: center;">
+        <div class="badge"><div class="ping"></div> System Uplink Secure</div>
+        <h1>Key Forge</h1>
+        <p class="desc">Quantum-encrypted hardware token generator.</p>
+      </div>
 
-    <h2>Key Generator</h2>
-    <p class="sub">Generate secure activation keys for clients.</p>
+      <div class="field-group">
+        <label class="label">Target Hardware ID //></label>
+        <input type="text" id="machineId" class="input-base" placeholder="MACHINE-XX-XX-XX-XX-XX-XX" autocomplete="off" spellcheck="false">
+      </div>
 
-    <!-- NEW MACHINE ID SECTION -->
-    <div class="input-label">Client Machine ID:</div>
-    <input type="text" id="machineIdField" placeholder="e.g. MACHINE-F4-46-37...">
+      <div class="field-group">
+        <input type="text" id="keyOutput" class="input-base" readonly placeholder="AWAITING INPUT...">
+      </div>
 
-    <div class="key-wrap">
-      <input type="text" id="keyField" readonly placeholder="XXXX · XXXX · XXXX · XX">
+      <button class="btn-sys btn-generate" id="genBtn">Initiate Decryption</button>
+      <button class="btn-sys btn-copy" id="copyBtn">Copy Token</button>
+
+      <div class="status-msg" id="statusMsg"></div>
     </div>
-
-    <button class="btn btn-gen" id="genBtn">Generate Hardware Key 🔑</button>
-    <button class="btn btn-copy" id="copyBtn">Copy to Clipboard</button>
-
-    <div class="msg" id="msg"></div>
   </div>
 
   <script>
-    // Import ipcRenderer to communicate securely with main.js
+    // Electron IPC Bridge[cite: 9]
     const { ipcRenderer } = require("electron");
-    
-    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    const machineIdField = document.getElementById("machineIdField");
-    const keyField = document.getElementById("keyField");
-    const genBtn = document.getElementById("genBtn");
-    const copyBtn = document.getElementById("copyBtn");
-    const msg = document.getElementById("msg");
-    const scan = document.getElementById("scan");
 
-    function randChar(){ return chars.charAt(Math.floor(Math.random() * chars.length)); }
+    const DOM = {
+      tilt: document.getElementById('tiltNode'),
+      machineId: document.getElementById('machineId'),
+      keyOutput: document.getElementById('keyOutput'),
+      genBtn: document.getElementById('genBtn'),
+      copyBtn: document.getElementById('copyBtn'),
+      statusMsg: document.getElementById('statusMsg'),
+      scanner: document.getElementById('scanner')
+    };
 
-    function format(raw){
+    const CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%&*";
+
+    // 3D Mouse Parallax Effect
+    document.addEventListener('mousemove', (e) => {
+      const x = (window.innerWidth / 2 - e.pageX) / 25;
+      const y = (window.innerHeight / 2 - e.pageY) / 25;
+      DOM.tilt.style.transform = `rotateY(${-x}deg) rotateX(${y}deg) translateZ(30px)`;
+    });
+
+    function showStatus(message, type) {
+      DOM.statusMsg.innerHTML = type === 'error' 
+        ? `[!] ${message}` 
+        : `[✓] ${message}`;
+      DOM.statusMsg.className = `status-msg show ${type === 'error' ? 'status-err' : 'status-ok'}`;
+    }
+
+    function formatKey(raw) {
       return `${raw.slice(0,4)}-${raw.slice(4,8)}-${raw.slice(8,12)}-${raw.slice(12,14)}`;
     }
 
-    function setMsg(text, iconOk){
-      msg.innerHTML = iconOk
-        ? `<svg class="check" viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.2 12L13 4.5" stroke="#34d399" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span style="color: var(--mint);">${text}</span>`
-        : `<span style="color: #fca5a5;">⚠ ${text}</span>`;
-      msg.classList.remove("show");
-      void msg.offsetWidth; // restart transition
-      msg.classList.add("show");
-    }
-
-    async function generateKey(){
-      const machineId = machineIdField.value.trim();
+    async function processKeyGeneration() {
+      const machineId = DOM.machineId.value.trim();
       
-      // Validation Check
       if (!machineId) {
-        setMsg("Enter Client's Machine ID!", false);
-        machineIdField.style.borderColor = "#fca5a5";
+        showStatus("CRITICAL: TARGET ID MISSING", "error");
+        DOM.machineId.style.borderColor = "var(--accent)";
+        setTimeout(() => DOM.machineId.style.borderColor = "", 2000);
         return;
       }
-      machineIdField.style.borderColor = "";
+
+      // Reset UI state
+      DOM.copyBtn.className = "btn-sys btn-copy";
+      DOM.copyBtn.innerText = "Copy Token";
+      DOM.keyOutput.classList.remove("decrypted");
       
-      copyBtn.classList.remove("done");
-      keyField.classList.add("active");
+      // Trigger Scanner Animation
+      DOM.scanner.classList.remove("active");
+      void DOM.scanner.offsetWidth;
+      DOM.scanner.classList.add("active");
 
-      // scanning sweep
-      scan.classList.remove("run");
-      void scan.offsetWidth;
-      scan.classList.add("run");
+      showStatus("ESTABLISHING HANDSHAKE...", "ok");
 
-      // Request hardware hash from Electron Backend (main.js)
+      // Secure IPC call to backend[cite: 9]
       const response = await ipcRenderer.invoke("generate-key", machineId);
       
       if (!response.success) {
-        setMsg(response.message, false);
+        showStatus(response.message, "error");
         return;
       }
 
-      // Format response for the slot machine animation
-      const finalRaw = response.key.replace(/-/g, "");
+      // Matrix-style Decryption Animation
+      const targetRaw = response.key.replace(/-/g, "");
+      let iterations = 0;
+      const maxIterations = 30;
 
-      // slot-machine style character cycling before settling
-      let ticks = 0;
-      const totalTicks = 14;
-      const interval = setInterval(() => {
-        let display = "";
-        for (let i = 0; i < 14; i++){
-          display += i < ticks ? finalRaw[i] : randChar();
+      const decryptInterval = setInterval(() => {
+        let displayStr = "";
+        for (let i = 0; i < 14; i++) {
+          // Reveal characters progressively
+          if (i < Math.floor(iterations / 2.1)) {
+            displayStr += targetRaw[i];
+          } else {
+            displayStr += CHARSET[Math.floor(Math.random() * CHARSET.length)];
+          }
         }
-        keyField.value = format(display);
-        ticks++;
-        if (ticks > totalTicks){
-          clearInterval(interval);
-          keyField.value = response.key; // Set exact final key
-          setMsg("Hardware Key generated successfully!", true);
+        
+        DOM.keyOutput.value = formatKey(displayStr);
+        iterations++;
+
+        if (iterations > maxIterations) {
+          clearInterval(decryptInterval);
+          DOM.keyOutput.value = response.key;
+          DOM.keyOutput.classList.add("decrypted");
+          showStatus("DECRYPTION COMPLETE", "ok");
         }
-      }, 45);
+      }, 40);
     }
 
-    function copyKey(e){
-      if (!keyField.value || keyField.value.includes("X")) return;
-      navigator.clipboard.writeText(keyField.value.replace(/-/g, "-")); // Remove center dots if copied
-
-      // ripple effect from click position
-      const rect = copyBtn.getBoundingClientRect();
-      const r = document.createElement("span");
-      r.className = "ripple";
-      const size = Math.max(rect.width, rect.height);
-      r.style.width = r.style.height = size + "px";
-      r.style.left = (e.clientX - rect.left - size/2) + "px";
-      r.style.top = (e.clientY - rect.top - size/2) + "px";
-      copyBtn.appendChild(r);
-      setTimeout(() => r.remove(), 600);
-
-      copyBtn.classList.add("done");
-      setMsg("Copied to clipboard!", true);
+    function copyToClipboard() {
+      const currentKey = DOM.keyOutput.value;
+      if (!currentKey || currentKey.includes("AWAITING") || currentKey.includes("!")) return;
+      
+      navigator.clipboard.writeText(currentKey.replace(/-/g, "-"));
+      DOM.copyBtn.className = "btn-sys btn-copy copied";
+      DOM.copyBtn.innerText = "Token Copied";
+      showStatus("TOKEN COPIED TO CLIPBOARD", "ok");
     }
 
-    genBtn.addEventListener("click", generateKey);
-    copyBtn.addEventListener("click", copyKey);
+    DOM.genBtn.addEventListener('click', processKeyGeneration);
+    DOM.copyBtn.addEventListener('click', copyToClipboard);
   </script>
 </body>
 </html>
