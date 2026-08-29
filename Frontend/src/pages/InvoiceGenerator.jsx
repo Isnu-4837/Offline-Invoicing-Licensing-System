@@ -105,7 +105,7 @@ export default function BillingConsole() {
     invoice_number: initialDraft?.formData?.invoice_number || "",
     invoice_date: initialDraft?.formData?.invoice_date || new Date().toISOString().split("T")[0],
     delivery_note: initialDraft?.formData?.delivery_note || "",
-    
+
     payment_mode: initialDraft?.formData?.payment_mode || "FULL",
     advance_paid: initialDraft?.formData?.advance_paid || 0,
     due_date: initialDraft?.formData?.due_date || "",
@@ -126,7 +126,7 @@ export default function BillingConsole() {
     branch_ifsc: initialDraft?.formData?.branch_ifsc || cachedDetails.branch_ifsc || "",
     qr_code_image: initialDraft?.formData?.qr_code_image || cachedDetails.qr_code_image || "",
     digital_signature: initialDraft?.formData?.digital_signature || cachedDetails.digital_signature || "",
-    
+
     installation_charges: initialDraft?.formData?.installation_charges || 0,
     is_gst_enabled: initialDraft?.formData?.is_gst_enabled ?? true,
 
@@ -216,19 +216,19 @@ export default function BillingConsole() {
       const res = await api.get("/invoices");
       const invoices = res.data || [];
       setInvoiceList(invoices);
-      
+
       setFormData((prev) => {
         const now = new Date();
         const m = String(now.getMonth() + 1).padStart(2, "0");
         const y = String(now.getFullYear()).slice(-2);
         const expectedPrefix = prev.doc_type === "QUOTATION" ? `QUO-${m}/${y}-` : `INV-${m}/${y}-`;
-        
+
         if (!prev.invoice_number || !prev.invoice_number.startsWith(expectedPrefix)) {
           return { ...prev, invoice_number: getNextInvoiceNumber(invoices, prev.doc_type) };
         }
         return prev;
       });
-      
+
       return invoices;
     } catch (error) {
       console.error("Failed to fetch invoices", error);
@@ -267,9 +267,9 @@ export default function BillingConsole() {
       const inv = res.data;
 
       setSelectedInvoice(inv);
-      
+
       const isFullyPaid = inv.payment_status === "PAID";
-      
+
       setIsPaidMarked(isFullyPaid);
       setPreMarkAdvance(isFullyPaid ? 0 : (Number(inv.advance_paid) || 0));
 
@@ -285,7 +285,7 @@ export default function BillingConsole() {
       setFormData(prev => ({
         ...prev,
         doc_type: inv.doc_type || "INVOICE",
-        
+
         client_name: inv.client_name || "",
         client_mobile: inv.client_mobile || "",
         client_email: inv.client_email || "",
@@ -294,7 +294,7 @@ export default function BillingConsole() {
         client_state: inv.client_state || "",
         client_state_code: inv.client_state_code || "",
         place_of_supply: inv.place_of_supply || "",
-        
+
         invoice_number: inv.invoice_number || "",
         invoice_date: safeDate(inv.created_at || inv.invoice_date),
         payment_mode: inv.payment_mode || "FULL",
@@ -314,12 +314,12 @@ export default function BillingConsole() {
         company_phones: inv.company_phones || prev.company_phones,
         company_email: inv.company_email || prev.company_email,
         company_pan: inv.company_pan || prev.company_pan,
-        
+
         bank_name: inv.bank_name || "",
         account_no: inv.account_no || "",
         branch_ifsc: inv.branch_ifsc || "",
         qr_code_image: inv.qr_code_image || "",
-        
+
         delivery_note: inv.delivery_note || "",
         reference_no_date: inv.reference_no_date || "",
         other_references: inv.other_references || "",
@@ -334,13 +334,13 @@ export default function BillingConsole() {
 
       let parsedItems = [];
       if (typeof inv.items === 'string') {
-          try {
-              parsedItems = JSON.parse(inv.items);
-          } catch (e) {
-              console.error("Failed to parse items JSON from DB", e);
-          }
+        try {
+          parsedItems = JSON.parse(inv.items);
+        } catch (e) {
+          console.error("Failed to parse items JSON from DB", e);
+        }
       } else if (Array.isArray(inv.items)) {
-          parsedItems = inv.items;
+        parsedItems = inv.items;
       }
 
       if (parsedItems && parsedItems.length > 0) {
@@ -456,7 +456,7 @@ export default function BillingConsole() {
       const baseItemTotal = (Number(item.price) || 0) * qty;
       const discPct = Number(item.discount_percent) || 0;
       const discAmt = baseItemTotal * (discPct / 100);
-      
+
       const discountedItemTotal = baseItemTotal - discAmt;
 
       totalDiscount += discAmt;
@@ -470,7 +470,7 @@ export default function BillingConsole() {
 
     const installation = Number(formData.installation_charges) || 0;
     const grandTotal = subtotal + tax + installation;
-    
+
     const advance = isPaidMarked ? grandTotal : (Number(formData.advance_paid) || 0);
     const balance = isPaidMarked ? 0 : Math.max(0, grandTotal - advance);
 
@@ -557,7 +557,7 @@ export default function BillingConsole() {
             price: Number(item.price) || 0,
             gst_rate: Number(item.gst_rate) || 18,
             discount_percent: Number(item.discount_percent) || 0,
-            sn_code: sub.sn_code || "", 
+            sn_code: sub.sn_code || "",
           });
         }
       } else {
@@ -578,8 +578,8 @@ export default function BillingConsole() {
 
     const finalAdvance = isPaidMarked ? grandTotal : (Number(formData.advance_paid) || 0);
 
-    const explicitStatus = isPaidMarked 
-      ? "PAID" 
+    const explicitStatus = isPaidMarked
+      ? "PAID"
       : (formData.payment_mode && formData.payment_mode.includes("INSTALLMENT") ? "INSTALLMENT" : "DUE");
 
     return {
@@ -626,7 +626,7 @@ export default function BillingConsole() {
 
       is_gst_enabled: formData.is_gst_enabled !== undefined ? formData.is_gst_enabled : true,
       installation_charges: Number(formData.installation_charges) || 0,
-      
+
       payment_mode: formData.payment_mode || "FULL",
       advance_paid: finalAdvance,
       payment_status: explicitStatus,
@@ -664,7 +664,7 @@ export default function BillingConsole() {
     localStorage.removeItem(DRAFT_STORAGE_KEY);
     setIsPaidMarked(false);
     setPreMarkAdvance(0);
-    
+
     setFormData(prev => ({
       ...prev,
       company_name: prev.company_name,
@@ -678,7 +678,7 @@ export default function BillingConsole() {
       company_pan: prev.company_pan,
       company_logo: prev.company_logo,
       digital_signature: prev.digital_signature,
-      
+
       bank_name: prev.bank_name,
       account_no: prev.account_no,
       branch_ifsc: prev.branch_ifsc,
@@ -687,9 +687,9 @@ export default function BillingConsole() {
       show_company_logo: prev.show_company_logo,
       show_digital_signature: prev.show_digital_signature,
       show_qr_code: prev.show_qr_code,
-      
+
       invoice_number: getNextInvoiceNumber(latestInvoices, prev.doc_type || "INVOICE"),
-      
+
       client_name: "",
       client_mobile: "",
       client_email: "",
@@ -736,16 +736,16 @@ export default function BillingConsole() {
 
   const confirmDeleteInvoice = async () => {
     if (!invoiceToDelete) return;
-    
+
     try {
       await api.delete(`/invoices/${invoiceToDelete}`);
       const updatedInvoices = await fetchInvoices();
       await fetchInventory();
-      
+
       if (selectedInvoice && selectedInvoice.id === invoiceToDelete) {
         clearDraftAndResetForm(updatedInvoices);
       }
-      
+
       setInvoiceToDelete(null);
     } catch (error) {
       const errMsg = formatError(error);
@@ -830,7 +830,7 @@ export default function BillingConsole() {
         page.style.boxShadow = "";
         page.style.transform = "";
         page.style.margin = "";
-        page.style.zoom = ""; 
+        page.style.zoom = "";
       });
     }
   };
@@ -894,7 +894,7 @@ export default function BillingConsole() {
   const numberToWords = (num) => {
     const fixedNum = Number(num).toFixed(2);
     const [rupeeStr, paiseStr] = fixedNum.split(".");
-    
+
     let n = parseInt(rupeeStr, 10);
     const paise = parseInt(paiseStr, 10);
 
@@ -938,7 +938,7 @@ export default function BillingConsole() {
       if (lakh) result += threeDigits(lakh) + " Lakh ";
       if (thousand) result += threeDigits(thousand) + " Thousand ";
       if (rest) result += threeDigits(rest);
-      
+
       result = result.trim();
     } else {
       result = "Zero";
@@ -956,7 +956,7 @@ export default function BillingConsole() {
     return result.trim();
   };
 
-  const ROWS_PER_FULL_PAGE = paperSize === "a5" ? 20 : 18; 
+  const ROWS_PER_FULL_PAGE = paperSize === "a5" ? 20 : 18;
   const ROWS_PER_LAST_PAGE = paperSize === "a5" ? 10 : 12;
 
   const mainRows = items.map((item, index) => ({ type: "main", item, index }));
@@ -1787,7 +1787,7 @@ export default function BillingConsole() {
             <div style={{ fontSize: "40px", marginBottom: "10px" }}>⚠️</div>
             <h4 style={{ color: "#f87171" }}>Permanently Delete?</h4>
             <p>
-              Are you absolutely sure you want to delete this document? 
+              Are you absolutely sure you want to delete this document?
               This action cannot be undone and will affect inventory stock levels linked to it.
             </p>
             <div className="modal-actions" style={{ marginTop: "24px" }}>
@@ -1926,8 +1926,8 @@ export default function BillingConsole() {
                   value={formData.doc_type}
                   onChange={(e) => {
                     const newDocType = e.target.value;
-                    setFormData((prev) => ({ 
-                      ...prev, 
+                    setFormData((prev) => ({
+                      ...prev,
                       doc_type: newDocType,
                       invoice_number: getNextInvoiceNumber(invoiceList, newDocType)
                     }));
@@ -2170,7 +2170,7 @@ export default function BillingConsole() {
                   }
                 />
               </div>
-              
+
               <div
                 style={{ display: "flex", gap: "10px", marginBottom: "10px" }}
               >
@@ -2196,10 +2196,10 @@ export default function BillingConsole() {
                     value={formData.payment_mode}
                     onChange={(e) => {
                       const newMode = e.target.value;
-                      setFormData({ 
-                        ...formData, 
+                      setFormData({
+                        ...formData,
                         payment_mode: newMode,
-                        ...(newMode === "FULL" ? { advance_paid: 0 } : {}) 
+                        ...(newMode === "FULL" ? { advance_paid: 0 } : {})
                       });
                     }}
                   >
@@ -2209,7 +2209,7 @@ export default function BillingConsole() {
                     <option value="INSTALLMENT_4">4-Part Installment</option>
                   </select>
                 </div>
-                
+
                 {formData.payment_mode !== "FULL" && !isPaidMarked && (
                   <div>
                     <span className="item-label" style={{ color: "#2dd4ff" }}>Advance Paid (₹)</span>
@@ -2494,8 +2494,8 @@ export default function BillingConsole() {
                             value={item.subItems[0]?.sn_code || ""}
                             onChange={(e) => {
                               const updated = [...items];
-                              if(updated[i].subItems.length === 0) {
-                                  updated[i].subItems.push({ sn_code: "" });
+                              if (updated[i].subItems.length === 0) {
+                                updated[i].subItems.push({ sn_code: "" });
                               }
                               updated[i].subItems[0].sn_code = e.target.value;
                               setItems(updated);
@@ -2916,47 +2916,47 @@ export default function BillingConsole() {
                   <div
                     key={inv.id}
                     className="history-item"
-                    onClick={() => loadInvoiceData(inv)} 
+                    onClick={() => loadInvoiceData(inv)}
                   >
                     <div className="history-item-content">
-                        <div className="history-item-header">
-                          <strong
-                            style={{
-                              color:
-                                inv.doc_type === "QUOTATION" ? "#fbbf24" : "#2dd4ff",
-                            }}
-                          >
-                            {inv.invoice_number}
-                          </strong>
-                          <span
-                            className="status-badge"
-                            style={{ background: badgeBg }}
-                          >
-                            {badgeText}
-                          </span> 
-                        </div>
-                        <div
+                      <div className="history-item-header">
+                        <strong
                           style={{
-                            fontSize: "14px",
-                            marginBottom: "6px",
-                            fontWeight: "500",
+                            color:
+                              inv.doc_type === "QUOTATION" ? "#fbbf24" : "#2dd4ff",
                           }}
                         >
-                          {inv.client_name}
-                        </div>
-                        <div
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            fontSize: "12px",
-                            color: "#94a3b8",
-                          }}
+                          {inv.invoice_number}
+                        </strong>
+                        <span
+                          className="status-badge"
+                          style={{ background: badgeBg }}
                         >
-                          <span>Total: ₹{inv.total_amount}</span>
-                        </div>
+                          {badgeText}
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          fontSize: "14px",
+                          marginBottom: "6px",
+                          fontWeight: "500",
+                        }}
+                      >
+                        {inv.client_name}
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          fontSize: "12px",
+                          color: "#94a3b8",
+                        }}
+                      >
+                        <span>Total: ₹{inv.total_amount}</span>
+                      </div>
                     </div>
-                    
-                    <button 
+
+                    <button
                       className="history-delete-btn"
                       title={`Delete ${inv.invoice_number}`}
                       onClick={(e) => {
@@ -3062,18 +3062,18 @@ export default function BillingConsole() {
                     }
                     try {
                       const updatedInvoices = await handleSaveInvoiceData();
-                      
+
                       if (selectedInvoice && selectedInvoice.id) {
-                         const newlySaved = updatedInvoices.find(inv => inv.id === selectedInvoice.id);
-                         if (newlySaved) {
-                             loadInvoiceData(newlySaved);
-                         }
+                        const newlySaved = updatedInvoices.find(inv => inv.id === selectedInvoice.id);
+                        if (newlySaved) {
+                          loadInvoiceData(newlySaved);
+                        }
                       } else {
-                         clearDraftAndResetForm(updatedInvoices);
+                        clearDraftAndResetForm(updatedInvoices);
                       }
-                      
+
                       alert("Invoice Saved Successfully!");
-                    } catch(e) {
+                    } catch (e) {
                       // Handled by handleSaveInvoiceData
                     }
                   }}
@@ -3104,9 +3104,8 @@ export default function BillingConsole() {
                 return (
                   <div
                     key={pageIndex}
-                    className={`ti-paper invoice-page ${
-                      paperSize === "a5" ? "ti-a5-preview" : ""
-                    }`}
+                    className={`ti-paper invoice-page ${paperSize === "a5" ? "ti-a5-preview" : ""
+                      }`}
                   >
                     <h1 className="ti-title">
                       {formData.doc_type === "QUOTATION"
@@ -3159,12 +3158,14 @@ export default function BillingConsole() {
                         >
                           Buyer (Bill to)
                         </p>
-                        <p className="ti-buyer-name">
+                        <p className="ti-buyer-name" style={{ marginBottom: "2px" }}>
                           {formData.client_name}
-                          {formData.client_mobile
-                            ? `, ${formData.client_mobile}`
-                            : ""}
                         </p>
+                        {formData.client_mobile && (
+                          <p style={{ marginTop: 0, fontWeight: "normal", fontSize: "12px" }}>
+                            <strong> Contact:</strong>  {formData.client_mobile}
+                          </p>
+                        )}
                         <p style={{ whiteSpace: "pre-line" }}>
                           {formData.client_address}
                         </p>
@@ -3205,8 +3206,8 @@ export default function BillingConsole() {
                             <td>
                               <strong>Mode/Terms of Payment</strong>
                               <br />
-                              {isPaidMarked 
-                                ? "PAID" 
+                              {isPaidMarked
+                                ? "PAID"
                                 : (formData.payment_mode && formData.payment_mode.includes("INSTALLMENT") ? "INSTALLMENT" : "DUE")}
                             </td>
                           </tr>
@@ -3312,7 +3313,7 @@ export default function BillingConsole() {
                                 <tr
                                   key={`empty-${pageIndex}-${idx}`}
                                   style={{
-                                    height: paperSize === "a5" ? "24px" : "40px", 
+                                    height: paperSize === "a5" ? "24px" : "40px",
                                   }}
                                 >
                                   <td className="text-center"></td>
@@ -3346,9 +3347,9 @@ export default function BillingConsole() {
 
                             const serialNumbersText = item.subItems
                               ? item.subItems
-                                  .map((sub) => sub.sn_code)
-                                  .filter(Boolean)
-                                  .join(", ")
+                                .map((sub) => sub.sn_code)
+                                .filter(Boolean)
+                                .join(", ")
                               : "";
 
                             return (
@@ -3576,7 +3577,7 @@ export default function BillingConsole() {
                                 ) : (
                                   <div
                                     style={{ width: "90px", height: "90px" }}
-                                 ></div>
+                                  ></div>
                                 )}
                                 <div style={{ textAlign: "right" }}>
                                   {formData.digital_signature && formData.show_digital_signature ? (
