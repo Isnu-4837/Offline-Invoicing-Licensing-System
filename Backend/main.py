@@ -19,6 +19,7 @@ import json
 import re
 import urllib.request
 import urllib.error
+import urllib.parse
 import datetime
 from dotenv import load_dotenv
 
@@ -504,8 +505,24 @@ def add_amc(data: schemas.AmcContractCreate, db: Session = Depends(get_db)):
     return crud.create_amc_contract(db, data)
 
 # ---------------------------------------------------------------------------
-# AI EXTRACTION ROUTES  (Gemini 1.5 Flash — REST API, no SDK required)
+# AI EXTRACTION ROUTES  (local vision model via Ollama — free, offline,
+# no API key, no per-call cost. Replaces the old Gemini-based extraction.)
+#
+# Setup (one-time, all free):
+#   1. Install Ollama:              https://ollama.com/download
+#   2. Pull a vision model:         ollama pull minicpm-v
+#   3. Make sure it's running:      ollama serve   (usually auto-starts)
+#   4. pip install pymupdf          (only needed to turn PDF uploads into
+#                                     an image before OCR — pure Python
+#                                     wheel, no poppler/system install)
+#
+# "minicpm-v" is a good default: small (~5.5GB), fast even on CPU, and
+# solid at reading invoices/receipts. "llava" or "qwen2.5vl" also work —
+# just change OLLAMA_VISION_MODEL below or set the env var of the same name.
 # ---------------------------------------------------------------------------
+
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+OLLAMA_VISION_MODEL = os.environ.get("OLLAMA_VISION_MODEL", "minicpm-v")
 
 class AIPayload(BaseModel):
     file_name: Optional[str] = "document.pdf"
@@ -516,9 +533,9 @@ class AIPayload(BaseModel):
 AIPurchasePayload = AIPayload
 
 
-def _parse_gemini_json(response_text: str) -> dict:
+def _parse_ai_json(response_text: str) -> dict:
     """
-    Robustly parses JSON from a Gemini response.
+    Robustly parses JSON out of a local model's text response.
     Handles both clean JSON and markdown-fenced ```json ... ``` blocks.
     """
     text = response_text.strip()
@@ -542,81 +559,126 @@ def _parse_gemini_json(response_text: str) -> dict:
         except json.JSONDecodeError:
             pass
 
-    raise ValueError(f"Could not parse JSON from Gemini response: {text[:200]}")
+    raise ValueError(f"Could not parse JSON from model response: {text[:200]}")
+
+
+def _pdf_first_page_to_png_base64(base64_pdf: str) -> str:
+    """
+    Renders the first page of a base64-encoded PDF to a PNG (base64-encoded).
+    Vision models take images, not PDFs, so multi-page PDF uploads are
+    reduced to their first page — that's where invoice/AMC headers live.
+
+    Uses PyMuPDF (`pip install pymupdf`), which ships its own rendering
+    engine as a pure wheel — no poppler/pdftoppm system install needed,
+    unlike pdf2image.
+    """
+    try:
+        import fitz  # PyMuPDF
+    except ImportError:
+        raise HTTPException(
+            status_code=500,
+            detail="PDF support needs PyMuPDF. Run: pip install pymupdf"
+        )
+
+    pdf_bytes = base64.b64decode(base64_pdf)
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    if doc.page_count == 0:
+        raise HTTPException(status_code=400, detail="Uploaded PDF has no pages.")
+    pix = doc[0].get_pixmap(dpi=200)  # 200dpi is plenty for OCR-quality text
+    return base64.b64encode(pix.tobytes("png")).decode("utf-8")
 
 
 def _sync_extract_with_gemini(base64_data: str, mime_type: str, prompt: str) -> dict:
     """
-    Sends an image/PDF to Gemini 1.5 Flash via the REST API and returns
-    structured JSON. Runs synchronously — call via asyncio.to_thread().
+    Extracts structured JSON from an image/PDF using a local vision model
+    served by Ollama (https://ollama.com) — completely free, runs on your
+    own machine, no API key, no internet required after the model is
+    pulled once. Runs synchronously — call via asyncio.to_thread().
 
-    API key is read from the GEMINI_API_KEY environment variable.
-    Set it in your .env file: GEMINI_API_KEY=AIza...
+    Requires:
+      - Ollama installed and running (`ollama serve`, usually automatic)
+      - A vision model pulled once: `ollama pull minicpm-v`
+        (override with the OLLAMA_VISION_MODEL env var)
+
+    Kept under the old function name so every existing call site below
+    (and anything importing it) keeps working unchanged.
     """
-    api_key = os.environ.get("GEMINI_API_KEY", "")
-    if not api_key:
+    # Frontends that read files via FileReader.readAsDataURL() (common in
+    # React/Electron) send strings like "data:image/jpeg;base64,/9j/4AAQ..."
+    # instead of raw base64. Strip the prefix here, in the one place shared
+    # by all extraction routes, so this can't reoccur per-endpoint.
+    if "," in base64_data and base64_data.strip().lower().startswith("data:"):
+        base64_data = base64_data.split(",", 1)[1]
+    base64_data = base64_data.strip()
+
+    # Validate it's actually decodable base64 before burning time on it —
+    # fail loudly here instead of getting back an all-null JSON object.
+    try:
+        base64.b64decode(base64_data, validate=True)
+    except Exception:
         raise HTTPException(
-            status_code=500,
-            detail="GEMINI_API_KEY is not set. Add it to your .env file and restart the server."
+            status_code=400,
+            detail="Uploaded file data isn't valid base64 (check the frontend isn't sending a data: URL prefix)."
         )
 
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/"
-        f"models/gemini-1.5-flash:generateContent?key={api_key}"
-    )
+    # Ollama's vision models take images only — turn a PDF's first page
+    # into a PNG before sending it.
+    if mime_type == "application/pdf":
+        base64_data = _pdf_first_page_to_png_base64(base64_data)
 
     payload = {
-        "contents": [{
-            "parts": [
-                {"text": prompt},
-                {"inline_data": {"mime_type": mime_type, "data": base64_data}}
-            ]
-        }],
-        # Request JSON output — Gemini honours this for text-only responses;
-        # for multimodal requests it may still return plain text, so we parse
-        # defensively via _parse_gemini_json().
-        "generationConfig": {"response_mime_type": "application/json"}
+        "model": OLLAMA_VISION_MODEL,
+        "prompt": prompt,
+        "images": [base64_data],
+        "format": "json",   # ask Ollama to constrain output to valid JSON
+        "stream": False,
     }
 
     req = urllib.request.Request(
-        url,
+        f"{OLLAMA_URL}/api/generate",
         data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json"},
         method="POST",
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=45) as response:
+        # Local vision models are slower than a cloud API, especially on
+        # CPU-only machines — give it real room before timing out.
+        with urllib.request.urlopen(req, timeout=180) as response:
             res_data = json.loads(response.read().decode("utf-8"))
 
-        # Navigate the Gemini response structure
-        raw_text = res_data["candidates"][0]["content"]["parts"][0]["text"]
-        return _parse_gemini_json(raw_text)
+        raw_text = res_data.get("response", "")
+        if not raw_text:
+            raise KeyError("response")
+        return _parse_ai_json(raw_text)
 
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode("utf-8", errors="replace")
-        print(f"\n[Gemini API Error] HTTP {e.code}: {error_body}\n")
+    except urllib.error.URLError as e:
+        print(f"\n[Ollama Connection Error] {e}\n")
         raise HTTPException(
             status_code=502,
-            detail=f"Gemini API returned HTTP {e.code}. Check the backend terminal for details."
+            detail=(
+                "Could not reach the local AI engine. Make sure Ollama is installed and "
+                "running (`ollama serve`), and that the model is pulled "
+                f"(`ollama pull {OLLAMA_VISION_MODEL}`)."
+            )
         )
-    except (KeyError, IndexError) as e:
-        print(f"\n[Gemini Parse Error] Unexpected response structure: {e}\n")
+    except KeyError as e:
+        print(f"\n[Ollama Parse Error] Unexpected response structure: {e}\n")
         raise HTTPException(
             status_code=502,
-            detail="Gemini returned an unexpected response format. Please try again."
+            detail="The local AI model returned an unexpected response format. Please try again."
         )
     except ValueError as e:
         print(f"\n[JSON Parse Error] {e}\n")
         raise HTTPException(
             status_code=502,
-            detail="Could not parse structured data from the AI response. Try a clearer image."
+            detail="Could not parse structured data from the AI response. Try a clearer image, or a stronger model (e.g. `ollama pull qwen2.5vl`)."
         )
     except Exception as e:
-        print(f"\n[Network/System Error] {type(e).__name__}: {e}\n")
+        print(f"\n[Local AI Error] {type(e).__name__}: {e}\n")
         raise HTTPException(
             status_code=500,
-            detail="Could not reach the AI service. Check your internet connection and try again."
+            detail="Could not complete local AI extraction. Check the backend terminal for details."
         )
 
 
@@ -628,7 +690,7 @@ def _sync_extract_with_gemini(base64_data: str, mime_type: str, prompt: str) -> 
 async def extract_purchase_invoice_ai(payload: AIPayload):
     """
     Extracts header-level fields (vendor, bill number, date, total) from a
-    purchase invoice image or PDF using Gemini 1.5 Flash vision.
+    purchase invoice image or PDF using a local vision model via Ollama.
     """
     if not payload.file_base64:
         raise HTTPException(status_code=400, detail={"message": "No file data received."})
@@ -659,7 +721,7 @@ async def extract_purchase_invoice_ai(payload: AIPayload):
 async def extract_amc_ai(payload: AIPayload):
     """
     Extracts AMC contract fields (client name, contact, product, dates) from
-    a warranty card, service report, or contract image/PDF using Gemini.
+    a warranty card, service report, or contract image/PDF using a local vision model via Ollama.
     """
     if not payload.file_base64:
         raise HTTPException(status_code=400, detail={"message": "No file data received."})
@@ -692,7 +754,7 @@ RECEIPT_ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp", "image/bmp", "
 async def ocr_receipt(file: UploadFile = File(...)):
     """
     Extracts individual line items from a receipt or inventory invoice using
-    Gemini 1.5 Flash vision. Returns a structured list of items ready to be
+    a local vision model via Ollama. Returns a structured list of items ready to be
     added to the inventory.
     """
     if not file.content_type or file.content_type not in RECEIPT_ALLOWED_TYPES:
