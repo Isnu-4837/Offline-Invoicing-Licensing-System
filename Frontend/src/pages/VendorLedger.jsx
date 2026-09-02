@@ -177,19 +177,13 @@ export default function VendorLedger() {
 
         * { box-sizing: border-box; }
 
-        body {
-          background-color: #08080b;
-          background-image:
-            linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px),
-            radial-gradient(circle at 85% -10%, rgba(244, 63, 94, 0.10) 0%, transparent 42%),
-            radial-gradient(circle at 5% 105%, rgba(56, 189, 248, 0.09) 0%, transparent 45%);
-          background-size: 40px 40px, 40px 40px, auto, auto;
-          font-family: 'Plus Jakarta Sans', sans-serif;
-          color: #f1f5f9;
-          margin: 0;
-          min-height: 100vh;
-        }
+       body {
+  background-color: #08080b;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  color: #f1f5f9;
+  margin: 0;
+  min-height: 100vh;
+}
 
         .mono { font-family: 'JetBrains Mono', monospace; }
 

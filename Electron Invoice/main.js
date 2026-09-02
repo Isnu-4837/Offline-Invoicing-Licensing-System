@@ -1,10 +1,102 @@
-const { app, BrowserWindow } = require("electron");
+const { app, BrowserWindow, ipcMain } = require("electron");
 const { spawn, exec } = require("child_process");
 const path = require("path");
+const fs = require("fs");
+const { machineIdSync } = require("node-machine-id");
+
+// Initialize secure local configuration via native Node.js fs storage to avoid ESM require errors
+const CONFIG_FILE = path.join(app.getPath("userData"), "system-security-config.json");
+
+function readStore() {
+  try {
+    if (fs.existsSync(CONFIG_FILE)) {
+      return JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8"));
+    }
+  } catch (e) {}
+  return {};
+}
+
+function writeStore(data) {
+  try {
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(data), "utf8");
+  } catch (e) {}
+}
 
 let backendProcess;
 let mainWindow;
 let isQuitting = false;
+
+// --- SECURE IPC TRIAL & LICENSE HANDLERS ---
+ipcMain.handle("get-machine-id", () => {
+  return machineIdSync();
+});
+
+ipcMain.handle("check-trial", () => {
+  const deviceId = machineIdSync();
+  const trialKey = `trial_${deviceId}_start`;
+  const lastSeenKey = `trial_${deviceId}_last_seen`;
+  const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+  
+  const storeData = readStore();
+  const isActivated = storeData[`activated_${deviceId}`] || false;
+  if (isActivated) {
+    return { status: "activated", daysLeft: 0 };
+  }
+
+  const now = Date.now();
+  const startTime = storeData[trialKey];
+  const lastSeenTime = storeData[lastSeenKey] || 0;
+
+  // No trial started yet
+  if (!startTime) {
+    return { status: "not_started", daysLeft: 7 };
+  }
+
+  // System clock tamper check (rolled back)
+  if (now < lastSeenTime) {
+    return { status: "tampered", daysLeft: 0 };
+  }
+
+  storeData[lastSeenKey] = now;
+  writeStore(storeData);
+
+  const elapsed = now - startTime;
+  if (elapsed > SEVEN_DAYS_MS) {
+    return { status: "expired", daysLeft: 0 };
+  }
+
+  const daysLeft = Math.ceil((SEVEN_DAYS_MS - elapsed) / (1000 * 60 * 60 * 24));
+  return { status: "active", daysLeft };
+});
+
+ipcMain.handle("start-trial", () => {
+  const deviceId = machineIdSync();
+  const trialKey = `trial_${deviceId}_start`;
+  const lastSeenKey = `trial_${deviceId}_last_seen`;
+  
+  const storeData = readStore();
+  if (!storeData[trialKey]) {
+    const now = Date.now();
+    storeData[trialKey] = now;
+    storeData[lastSeenKey] = now;
+    writeStore(storeData);
+  }
+  return { success: true, trial_days_remaining: 7 };
+});
+
+ipcMain.handle("activate-license", (_, licenseKey) => {
+  const cleanKey = (licenseKey || "").trim();
+  // Example offline key validation criteria (14 chars alphanumeric)
+  if (cleanKey.length === 14) {
+    const deviceId = machineIdSync();
+    const storeData = readStore();
+    storeData[`activated_${deviceId}`] = true;
+    writeStore(storeData);
+    return { success: true };
+  }
+  return { success: false, message: "Invalid license key format or code." };
+});
+// -------------------------------------------
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -13,7 +105,8 @@ function createWindow() {
     autoHideMenuBar: true,
     webPreferences: {
       nodeIntegration: false,
-      contextIsolation: true
+      contextIsolation: true,
+      preload: path.join(__dirname, "preload.js")
     }
   });
 
@@ -76,7 +169,6 @@ app.whenReady().then(() => {
     });
   }
 
-  // Increased failsafe timer to 5 seconds to give Uvicorn time to boot
   const fallbackTimer = setTimeout(() => {
     if (!mainWindow) {
       console.log("Failsafe triggered: Opening window...");

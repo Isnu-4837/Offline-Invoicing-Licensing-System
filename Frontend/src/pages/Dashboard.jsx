@@ -354,20 +354,14 @@ export default function Dashboard() {
 
         * { box-sizing: border-box; }
 
-        body { 
-          background-color: var(--ink);
-          background-image:
-            linear-gradient(rgba(255,255,255,0.028) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(255,255,255,0.028) 1px, transparent 1px),
-            radial-gradient(circle at 12% 8%, rgba(251, 191, 36, 0.11), transparent 38%),
-            radial-gradient(circle at 88% 92%, rgba(52, 211, 153, 0.11), transparent 40%),
-            radial-gradient(circle at 50% 50%, rgba(34, 211, 238, 0.06), transparent 60%);
-          background-size: 42px 42px, 42px 42px, auto, auto, auto;
-          font-family: 'Plus Jakarta Sans', sans-serif; 
-          color: #f1f5f9; 
-          margin: 0; 
-          min-height: 100vh;
-        }
+       body { 
+  background-color: var(--ink);
+  /* background-image and background-size removed */
+  font-family: 'Plus Jakarta Sans', sans-serif; 
+  color: #f1f5f9; 
+  margin: 0; 
+  min-height: 100vh;
+}
 
         .mono { font-family: 'JetBrains Mono', monospace; }
         .heading-font { font-family: 'Sora', 'Plus Jakarta Sans', sans-serif; }
@@ -600,7 +594,7 @@ export default function Dashboard() {
         /* Top Action Cards */
         .action-cards-container {
           display: grid;
-          grid-template-columns: 1fr 1fr;
+          grid-template-columns: repeat(3, 1fr);
           gap: 20px;
           margin-bottom: 24px;
         }
@@ -674,6 +668,21 @@ export default function Dashboard() {
         .action-card.invoice-card:hover {
           box-shadow: 0 18px 40px -12px rgba(251, 191, 36, 0.32);
           border-color: rgba(251, 191, 36, 0.4);
+        }
+        
+        .action-card.saved-invoices-card {
+          border: 1px solid rgba(167, 139, 250, 0.18);
+          animation-delay: 0.08s;
+          --accent-a: var(--violet);
+          --accent-b: var(--sky);
+        }
+        .action-card.saved-invoices-card:hover {
+          box-shadow: 0 18px 40px -12px rgba(167, 139, 250, 0.32);
+          border-color: rgba(167, 139, 250, 0.4);
+        }
+        .saved-invoices-card .action-icon { 
+          background: rgba(167, 139, 250, 0.12); 
+          box-shadow: 0 0 0 1px rgba(167,139,250,0.15) inset; 
         }
 
         .action-card.inventory-card {
@@ -1166,6 +1175,7 @@ export default function Dashboard() {
         }
 
         @media (max-width: 860px) {
+          .action-cards-container { grid-template-columns: 1fr 1fr; }
           .stats-grid { grid-template-columns: 1fr 1fr; }
           .erp-grid { grid-template-columns: 1fr 1fr; }
         }
@@ -1218,6 +1228,18 @@ export default function Dashboard() {
             <div className="action-icon">📄</div>
             <div className="action-title">Invoice &amp; Quotation Generator</div>
             <div className="action-sub">Create &amp; manage billing documents</div>
+          </div>
+          
+          <div
+            className="action-card saved-invoices-card tilt-card"
+            onClick={() => navigate("/saved-invoices")}
+            onMouseMove={handleTilt}
+            onMouseLeave={resetTilt}
+          >
+            <span className="card-spotlight" />
+            <div className="action-icon">📂</div>
+            <div className="action-title">Saved Invoices Menu</div>
+            <div className="action-sub">Access &amp; manage past invoices</div>
           </div>
 
           <div

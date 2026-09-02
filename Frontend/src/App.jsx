@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { HashRouter as Router, Routes, Route } from "react-router-dom";
+import { HashRouter as Router, Routes, Route, Outlet, useNavigate } from "react-router-dom";
 import api from "./api/axios";
 import Dashboard from "./pages/Dashboard";          
 import InvoiceGenerator from "./pages/InvoiceGenerator"; 
@@ -12,7 +12,9 @@ import WhatsAppIntegration from "./pages/WhatsAppIntegration";
 import AutoReminders from "./pages/AutoReminders";
 import VendorLedger from "./pages/VendorLedger";
 import StockHistory from "./pages/StockHistory";  
-import SalesReports from "./pages/SalesReports";     
+import SalesReports from "./pages/SalesReports";  
+import SavedInvoices from "./pages/SavedInvoices";   
+import UpgradePaywall from "./pages/UpgradePaywall";
 
 const ACTIVATION_STYLES = `
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
@@ -24,6 +26,8 @@ const ACTIVATION_STYLES = `
   --accent-blue: #3b82f6;
   --accent-indigo: #6366f1;
   --accent-glow: rgba(34, 211, 238, 0.4);
+  --accent-emerald: #10b981;
+  --accent-rose: #f43f5e;
   --text-primary: #f8fafc;
   --text-muted: #94a3b8;
   --border-light: rgba(148, 163, 184, 0.1);
@@ -35,7 +39,7 @@ body {
   background-color: var(--bg-base);
   font-family: 'Outfit', sans-serif;
   color: var(--text-primary);
-  overflow: hidden;
+  overflow-x: hidden;
 }
 
 @keyframes grid-move {
@@ -89,11 +93,147 @@ body {
   100% { transform: scale(1); opacity: 1; filter: blur(0); }
 }
 
-@keyframes shine {
-  0% { left: -100%; }
-  20% { left: 100%; }
-  100% { left: 100%; }
+/* 7-Day Trial Top Banner */
+.aa-trial-banner {
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(34, 211, 238, 0.25);
+  padding: 10px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 9999;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
 }
+
+.aa-trial-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.aa-trial-badge {
+  background: rgba(34, 211, 238, 0.15);
+  border: 1px solid rgba(34, 211, 238, 0.35);
+  color: var(--accent-cyan);
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.aa-trial-badge .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-cyan);
+  box-shadow: 0 0 8px var(--accent-cyan);
+}
+
+.aa-trial-btn-unlock {
+  background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+  color: #030712;
+  border: none;
+  padding: 7px 16px;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 0 12px rgba(34, 211, 238, 0.3);
+}
+
+.aa-trial-btn-unlock:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 0 18px rgba(34, 211, 238, 0.5);
+}
+
+/* Secondary Trial Button on Lock Screen */
+.aa-trial-start-btn {
+  width: 100%;
+  padding: 14px;
+  margin-top: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(34, 211, 238, 0.3);
+  background: rgba(34, 211, 238, 0.08);
+  color: var(--accent-cyan);
+  font-family: 'Outfit', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.aa-trial-start-btn:hover:not(:disabled) {
+  background: rgba(34, 211, 238, 0.18);
+  border-color: var(--accent-cyan);
+  transform: translateY(-2px);
+}
+
+.aa-divider {
+  display: flex;
+  align-items: center;
+  margin: 20px 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.aa-divider::before, .aa-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-light);
+}
+
+.aa-divider span {
+  padding: 0 12px;
+}
+
+/* Modal Overlay for Early Trial Activation */
+.aa-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(3, 7, 18, 0.85);
+  backdrop-filter: blur(12px);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.2s ease;
+}
+
+.aa-modal-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+  transition: color 0.2s;
+}
+
+.aa-modal-close:hover { color: #fff; }
 
 .aa-shell {
   min-height: 100vh;
@@ -150,7 +290,7 @@ body {
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 24px;
-  padding: 48px 40px;
+  padding: 44px 40px;
   text-align: center;
   box-shadow: 
     0 20px 50px rgba(0, 0, 0, 0.5),
@@ -189,9 +329,9 @@ body {
 
 .aa-icon-container {
   position: relative;
-  width: 100px;
-  height: 100px;
-  margin: 0 auto 24px;
+  width: 90px;
+  height: 90px;
+  margin: 0 auto 20px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -207,7 +347,7 @@ body {
 
 .aa-icon-ring-inner {
   position: absolute;
-  inset: 12px;
+  inset: 10px;
   border: 2px solid transparent;
   border-top-color: rgba(99, 102, 241, 0.8);
   border-bottom-color: rgba(99, 102, 241, 0.8);
@@ -217,7 +357,7 @@ body {
 
 .aa-icon-pulse {
   position: absolute;
-  inset: 20px;
+  inset: 18px;
   border-radius: 50%;
   background: rgba(34, 211, 238, 0.1);
   animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
@@ -231,31 +371,32 @@ body {
 }
 
 .aa-title {
-  font-size: 28px;
+  font-size: 26px;
   font-weight: 800;
   letter-spacing: -0.5px;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   background: linear-gradient(135deg, #fff, #94a3b8);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
 .aa-subtitle {
-  font-size: 14px;
+  font-size: 13.5px;
   color: var(--text-muted);
-  margin-bottom: 32px;
+  margin-bottom: 24px;
   font-weight: 400;
+  line-height: 1.5;
 }
 
 .aa-machine-id-box {
   background: rgba(15, 23, 42, 0.5);
   border: 1px solid var(--border-light);
   border-radius: 12px;
-  padding: 12px 16px;
+  padding: 10px 14px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 32px;
+  margin-bottom: 24px;
   position: relative;
   overflow: hidden;
   transition: all 0.3s ease;
@@ -267,7 +408,7 @@ body {
 }
 
 .aa-machine-id-label {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -278,7 +419,7 @@ body {
   font-family: 'JetBrains Mono', monospace;
   color: var(--accent-cyan);
   font-weight: 700;
-  font-size: 14px;
+  font-size: 13.5px;
   letter-spacing: 0.5px;
 }
 
@@ -301,10 +442,6 @@ body {
   transform: scale(1.05);
 }
 
-.aa-copy-btn:active {
-  transform: scale(0.95);
-}
-
 .aa-copy-btn.copied {
   background: rgba(16, 185, 129, 0.2);
   border-color: rgba(16, 185, 129, 0.3);
@@ -312,7 +449,7 @@ body {
 }
 
 .aa-key-input-container {
-  margin-bottom: 24px;
+  margin-bottom: 20px;
   position: relative;
   cursor: text;
 }
@@ -320,7 +457,7 @@ body {
 .aa-key-slots {
   display: flex;
   justify-content: center;
-  gap: 12px;
+  gap: 10px;
   cursor: text;
 }
 
@@ -331,7 +468,7 @@ body {
 
 .aa-slot {
   width: 24px;
-  height: 40px;
+  height: 38px;
   background: rgba(3, 7, 18, 0.6);
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 6px;
@@ -339,25 +476,12 @@ body {
   align-items: center;
   justify-content: center;
   font-family: 'JetBrains Mono', monospace;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
   color: #fff;
   transition: all 0.2s ease;
   position: relative;
   overflow: hidden;
-}
-
-.aa-slot::after {
-  content: '';
-  position: absolute;
-  bottom: 4px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 10px;
-  height: 2px;
-  background: rgba(148, 163, 184, 0.3);
-  border-radius: 1px;
-  transition: all 0.2s ease;
 }
 
 .aa-slot.filled {
@@ -367,21 +491,10 @@ body {
   animation: fill-slot 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
-.aa-slot.filled::after {
-  opacity: 0;
-}
-
 .aa-slot.active {
   border-color: var(--accent-indigo);
   box-shadow: 0 0 15px rgba(99, 102, 241, 0.3);
 }
-
-.aa-slot.active::after {
-  background: var(--accent-indigo);
-  animation: blink 1s step-end infinite;
-}
-
-@keyframes blink { 50% { opacity: 0; } }
 
 .aa-slot-separator {
   color: rgba(148, 163, 184, 0.4);
@@ -402,13 +515,13 @@ body {
 }
 
 .aa-error-msg {
-  color: #ef4444;
+  color: var(--accent-rose);
   font-size: 13px;
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.2);
+  background: rgba(244, 63, 94, 0.1);
+  border: 1px solid rgba(244, 63, 94, 0.2);
   padding: 8px 12px;
   border-radius: 8px;
-  margin-bottom: 24px;
+  margin-bottom: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -418,15 +531,15 @@ body {
 
 .aa-submit-btn {
   width: 100%;
-  padding: 16px;
+  padding: 15px;
   border-radius: 12px;
   border: none;
   background: linear-gradient(135deg, var(--accent-blue), var(--accent-indigo));
   color: white;
   font-family: 'Outfit', sans-serif;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
-  letter-spacing: 1px;
+  letter-spacing: 0.5px;
   text-transform: uppercase;
   cursor: pointer;
   position: relative;
@@ -435,26 +548,9 @@ body {
   box-shadow: 0 10px 20px rgba(99, 102, 241, 0.3);
 }
 
-.aa-submit-btn::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 50%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
-  transform: skewX(-20deg);
-  animation: shine 3s infinite;
-}
-
 .aa-submit-btn:hover:not(:disabled) {
   transform: translateY(-2px);
   box-shadow: 0 15px 25px rgba(99, 102, 241, 0.4);
-}
-
-.aa-submit-btn:active:not(:disabled) {
-  transform: translateY(1px);
-  box-shadow: 0 5px 10px rgba(99, 102, 241, 0.3);
 }
 
 .aa-submit-btn:disabled {
@@ -462,10 +558,6 @@ body {
   color: #94a3b8;
   cursor: not-allowed;
   box-shadow: none;
-}
-
-.aa-submit-btn:disabled::before {
-  display: none;
 }
 
 /* Loading State */
@@ -525,42 +617,45 @@ body {
   align-items: center;
   gap: 4px;
 }
-
-.aa-loading-dots::after {
-  content: '...';
-  animation: loading-dots 1.5s steps(4, end) infinite;
-  width: 20px;
-  display: inline-block;
-  text-align: left;
-}
-
-@keyframes loading-dots {
-  0%, 20% { color: rgba(0,0,0,0); text-shadow: .25em 0 0 rgba(0,0,0,0), .5em 0 0 rgba(0,0,0,0);}
-  40% { color: inherit; text-shadow: .25em 0 0 rgba(0,0,0,0), .5em 0 0 rgba(0,0,0,0);}
-  60% { text-shadow: .25em 0 0 inherit, .5em 0 0 rgba(0,0,0,0);}
-  80%, 100% { text-shadow: .25em 0 0 inherit, .5em 0 0 inherit;}
-}
 `;
 
 function AppActivationWrapper({ children }) {
   const [isActivated, setIsActivated] = useState(null);
-  const [machineId, setMachineId] = useState("");
-  const [inputKey, setInputKey] = useState("");
-  const [errorMsg, setErrorMsg] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const hiddenInputRef = useRef(null);
-  const cardRef = useRef(null);
+  const [isTrial, setIsTrial] = useState(false);
+  const [trialDaysRemaining, setTrialDaysRemaining] = useState(0);
+  const [trialExpired, setTrialExpired] = useState(false);
+  const [canStartTrial, setCanStartTrial] = useState(true);
 
+  const [machineId, setMachineId] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
+  const [startingTrial, setStartingTrial] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const cardRef = useRef(null);
+  const navigate = useNavigate();
+
+  // Run the activation/trial check exactly once on mount.
+  // IMPORTANT: this must NOT depend on isActivated/isTrial — those state
+  // values are set optimistically by handleStartTrial(), and re-running
+  // checkStatus() right after would immediately re-query the (possibly
+  // not-yet-persisted) trial status and flip the UI back to the lock
+  // screen, which is what was causing the "click trial -> back to
+  // System Access Required" bug.
   useEffect(() => {
     checkStatus();
-    
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Mouse-parallax effect for the lock-screen card — this one is fine to
+  // key off isActivated/isTrial since it only attaches/detaches listeners,
+  // it never re-fetches status.
+  useEffect(() => {
     const handleMouseMove = (e) => {
       if (!cardRef.current) return;
       const { clientX, clientY } = e;
       const { innerWidth, innerHeight } = window;
-      const x = (clientX / innerWidth - 0.5) * 20; 
-      const y = (clientY / innerHeight - 0.5) * -20;
+      const x = (clientX / innerWidth - 0.5) * 16; 
+      const y = (clientY / innerHeight - 0.5) * -16;
       
       cardRef.current.style.transform = `rotateY(${x}deg) rotateX(${y}deg)`;
     };
@@ -570,7 +665,7 @@ function AppActivationWrapper({ children }) {
       cardRef.current.style.transform = `rotateY(0deg) rotateX(0deg)`;
     };
 
-    if (isActivated === false) {
+    if (isActivated === false && !isTrial) {
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseleave', handleMouseLeave);
     }
@@ -579,7 +674,7 @@ function AppActivationWrapper({ children }) {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseleave', handleMouseLeave);
     };
-  }, [isActivated]);
+  }, [isActivated, isTrial]);
 
   const handleCopyMachineId = async () => {
     if (!machineId) return;
@@ -600,6 +695,51 @@ function AppActivationWrapper({ children }) {
   };
 
   const checkStatus = async () => {
+    // 1. Fetch hardware ID from Electron IPC bridge if available
+    if (window.electronAPI && typeof window.electronAPI.getMachineId === 'function') {
+      try {
+        const mId = await window.electronAPI.getMachineId();
+        setMachineId(mId);
+      } catch (err) {
+        console.error("Failed to fetch machine ID from Electron", err);
+      }
+    }
+
+    // 2. Check Electron secure store status first (Offline-first approach)
+    if (window.electronAPI && typeof window.electronAPI.checkTrialStatus === 'function') {
+      try {
+        const trialStatus = await window.electronAPI.checkTrialStatus();
+        if (trialStatus) {
+          if (trialStatus.status === 'activated') {
+            setIsActivated(true);
+            setIsTrial(false);
+            return;
+          } else if (trialStatus.status === 'active') {
+            setIsActivated(false);
+            setIsTrial(true);
+            setTrialDaysRemaining(trialStatus.daysLeft);
+            setTrialExpired(false);
+            setCanStartTrial(false);
+            return;
+          } else if (trialStatus.status === 'expired' || trialStatus.status === 'tampered') {
+            setIsActivated(false);
+            setIsTrial(false);
+            setTrialExpired(true);
+            setCanStartTrial(false);
+            return;
+          } else if (trialStatus.status === 'not_started') {
+            setIsActivated(false);
+            setIsTrial(false);
+            setCanStartTrial(true);
+            return;
+          }
+        }
+      } catch (err) {
+        console.error("Electron API check failed, falling back to backend API", err);
+      }
+    }
+
+    // 3. Fallback to backend API checks
     try {
       const mRes = await api.get("/system/machine-id");
       setMachineId(mRes.data.machine_id);
@@ -609,94 +749,136 @@ function AppActivationWrapper({ children }) {
 
     try {
       const res = await api.get("/system/status");
+      const { 
+        is_activated = false, 
+        is_trial = false, 
+        trial_days_remaining = 0, 
+        trial_expired = false,
+        can_start_trial = true 
+      } = res.data;
+
       setTimeout(() => {
-        setIsActivated(res.data.is_activated);
-      }, 1500); 
+        setIsActivated(is_activated);
+        setIsTrial(is_trial && !trial_expired);
+        setTrialDaysRemaining(trial_days_remaining);
+        setTrialExpired(trial_expired);
+        setCanStartTrial(can_start_trial && !is_activated && !is_trial && !trial_expired);
+      }, 800); 
     } catch (e) {
-      console.error("Failed to verify license status", e);
       setIsActivated(false);
+      setCanStartTrial(true);
     }
   };
 
-  const formatAndSetKey = (val) => {
-    let rawValue = val.replace(/[^A-Z0-9]/ig, "").toUpperCase();
-    rawValue = rawValue.substring(0, 14);
-    let parts = [];
-    if (rawValue.length > 0) parts.push(rawValue.substring(0, 4));
-    if (rawValue.length > 4) parts.push(rawValue.substring(4, 8));
-    if (rawValue.length > 8) parts.push(rawValue.substring(8, 12));
-    if (rawValue.length > 12) parts.push(rawValue.substring(12, 14));
-
-    setInputKey(parts.join("-"));
+  const handleStartTrial = async () => {
+    setStartingTrial(true);
     setErrorMsg("");
-  };
-
-  const handleKeyChange = (e) => {
-    formatAndSetKey(e.target.value);
-  };
-
-  const handlePaste = (e) => {
-    e.preventDefault();
-    const pastedData = e.clipboardData.getData('Text');
-    formatAndSetKey(pastedData);
-  };
-
-  const handleActivate = async (e) => {
-    e.preventDefault();
-    if(inputKey.replace(/-/g, "").length !== 14) {
-        setErrorMsg("Please enter a complete 14-character key.");
-        return;
-    }
-    setSubmitting(true);
     try {
-      const rawKey = inputKey.replace(/-/g, "");
-      const res = await api.post("/system/activate", { key: rawKey });
-      
-      if (res.data.success || res.data.is_activated) {
-        if(cardRef.current) {
-            cardRef.current.style.animation = "reveal-card 0.5s reverse forwards";
+      if (window.electronAPI && typeof window.electronAPI.startTrial === 'function') {
+        const res = await window.electronAPI.startTrial();
+        if (res.success) {
+          setIsTrial(true);
+          setTrialDaysRemaining(res.trial_days_remaining || 7);
+          setCanStartTrial(false);
+          return;
         }
-        setTimeout(() => setIsActivated(true), 500);
-      } else {
-        setErrorMsg(res.data.message);
       }
-    } catch (e) {
-      const serverMsg = e?.response?.data?.detail;
-      setErrorMsg(serverMsg || "Activation failed. Please check your connection.");
+
+      const res = await api.post("/system/start-trial", { machine_id: machineId });
+      if (res.data.success || res.data.is_trial) {
+        setIsTrial(true);
+        setTrialDaysRemaining(res.data.trial_days_remaining || 7);
+        setCanStartTrial(false);
+      } else {
+        setErrorMsg(res.data.message || "Unable to start free trial.");
+      }
+    } catch (err) {
+      setIsTrial(true);
+      setTrialDaysRemaining(7);
+      setCanStartTrial(false);
     } finally {
-      setSubmitting(false);
+      setStartingTrial(false);
     }
   };
 
-  const renderSlots = () => {
-    const raw = inputKey.replace(/-/g, "");
-    const chars = raw.split("");
-    const groups = [4, 4, 4, 2];
-    let charIndex = 0;
-    
-    return groups.map((len, gIndex) => (
-      <React.Fragment key={gIndex}>
-        <div className="aa-slot-group">
-          {Array.from({ length: len }).map((_, i) => {
-            const isFilled = !!chars[charIndex];
-            const isActive = charIndex === chars.length && !submitting; 
-            const displayChar = chars[charIndex++] || "";
-            
-            return (
-              <div 
-                key={i} 
-                className={`aa-slot ${isFilled ? "filled" : ""} ${isActive ? "active" : ""}`}
-              >
-                {displayChar}
-              </div>
-            );
-          })}
-        </div>
-        {gIndex < groups.length - 1 && <span className="aa-slot-separator">-</span>}
-      </React.Fragment>
-    ));
-  };
+  const renderChoiceScreen = () => (
+    <div className="aa-card" ref={cardRef}>
+      <div className="aa-scanline" />
 
+      <div className="aa-icon-container">
+        <div className="aa-icon-ring-outer" />
+        <div className="aa-icon-ring-inner" />
+        <div className="aa-icon-pulse" />
+        <svg className="aa-icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          <circle cx="12" cy="16" r="1"></circle>
+        </svg>
+      </div>
+
+      <h2 className="aa-title">
+        {trialExpired ? "Trial Expired" : "System Access Required"}
+      </h2>
+      <p className="aa-subtitle">
+        {trialExpired
+          ? "Your 7-day free trial has ended. Activate a lifetime license to keep using the app."
+          : "Start your 7-day free trial, or activate a lifetime license to unlock full access."}
+      </p>
+
+      <div className="aa-machine-id-box">
+        <div>
+          <div className="aa-machine-id-label">Hardware ID</div>
+          <div className="aa-machine-id-value">{machineId || "Generating..."}</div>
+        </div>
+        <button
+          type="button"
+          className={`aa-copy-btn ${copied ? "copied" : ""}`}
+          onClick={handleCopyMachineId}
+          title="Copy Hardware ID"
+        >
+          {copied ? (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          ) : (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+          )}
+        </button>
+      </div>
+
+      {errorMsg && (
+        <div className="aa-error-msg">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+          {errorMsg}
+        </div>
+      )}
+
+      {canStartTrial && (
+        <button
+          type="button"
+          className="aa-trial-start-btn"
+          onClick={handleStartTrial}
+          disabled={startingTrial}
+        >
+          {startingTrial ? "Initializing Trial..." : "⚡ Start 7-Day Free Trial"}
+        </button>
+      )}
+
+      {canStartTrial && (
+        <div className="aa-divider">
+          <span>Or</span>
+        </div>
+      )}
+
+      <button
+        type="button"
+        className="aa-submit-btn"
+        onClick={() => navigate("/upgrade")}
+      >
+        Activate for Lifetime Access
+      </button>
+    </div>
+  );
+
+  // 1. Initial Loading Screen
   if (isActivated === null) {
     return (
       <div className="aa-shell">
@@ -712,13 +894,41 @@ function AppActivationWrapper({ children }) {
             <div className="aa-loader-center"></div>
           </div>
           <div className="aa-loading-text">
-            Initializing System <span className="aa-loading-dots"></span>
+            Validating Security State
           </div>
         </div>
       </div>
     );
   }
 
+  // 2. Active Trial State: Render App with Sticky Trial Banner
+  if (isTrial && !isActivated) {
+    return (
+      <>
+        <style>{ACTIVATION_STYLES}</style>
+        <div className="aa-trial-banner">
+          <div className="aa-trial-info">
+            <span className="aa-trial-badge">
+              <span className="dot" /> 7-Day Free Trial
+            </span>
+            <span>
+              ⚡ You have <strong>{trialDaysRemaining} {trialDaysRemaining === 1 ? 'day' : 'days'} remaining</strong> on your trial license.
+            </span>
+          </div>
+          <button 
+            className="aa-trial-btn-unlock" 
+            onClick={() => navigate("/upgrade")}
+          >
+            Activate Lifetime License
+          </button>
+        </div>
+
+        {children}
+      </>
+    );
+  }
+
+  // 3. Locked / Expired State: Require License Key or Free Trial
   if (!isActivated) {
     return (
       <div className="aa-shell">
@@ -726,90 +936,39 @@ function AppActivationWrapper({ children }) {
         <div className="aa-bg-grid" />
         <div className="aa-orb aa-orb-cyan" />
         <div className="aa-orb aa-orb-indigo" />
-
-        <div className="aa-card" ref={cardRef}>
-          <div className="aa-scanline" />
-          
-          <div className="aa-icon-container">
-            <div className="aa-icon-ring-outer" />
-            <div className="aa-icon-ring-inner" />
-            <div className="aa-icon-pulse" />
-            <svg className="aa-icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-              <circle cx="12" cy="16" r="1"></circle>
-            </svg>
-          </div>
-
-          <h2 className="aa-title">System Locked</h2>
-          <p className="aa-subtitle">Provide your Machine ID to obtain a valid license key.</p>
-
-          <div className="aa-machine-id-box">
-            <div>
-              <div className="aa-machine-id-label">Hardware ID</div>
-              <div className="aa-machine-id-value">{machineId || "Generating..."}</div>
-            </div>
-            <button
-              type="button"
-              className={`aa-copy-btn ${copied ? "copied" : ""}`}
-              onClick={handleCopyMachineId}
-              title="Copy to clipboard"
-            >
-              {copied ? (
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-              ) : (
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-              )}
-            </button>
-          </div>
-
-          <form onSubmit={handleActivate}>
-            <div 
-              className="aa-key-input-container"
-              onClick={() => hiddenInputRef.current && hiddenInputRef.current.focus()}
-            >
-              <div className="aa-key-slots">
-                 {renderSlots()}
-              </div>
-              <input
-                ref={hiddenInputRef}
-                className="aa-hidden-input"
-                type="text"
-                autoFocus
-                value={inputKey}
-                onChange={handleKeyChange}
-                onPaste={handlePaste}
-                autoComplete="off"
-                spellCheck="false"
-              />
-            </div>
-
-            {errorMsg && (
-              <div className="aa-error-msg">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-                {errorMsg}
-              </div>
-            )}
-
-            <button type="submit" className="aa-submit-btn" disabled={submitting}>
-              {submitting ? "Authenticating..." : "Unlock System"}
-            </button>
-          </form>
-        </div>
+        {renderChoiceScreen()}
       </div>
     );
   }
 
+  // 4. Fully Activated System
   return <>{children}</>;
+}
+
+function ProtectedLayout() {
+  return (
+    <AppActivationWrapper>
+      <Outlet />
+    </AppActivationWrapper>
+  );
 }
 
 function App() {
   return (
-    <AppActivationWrapper>
-      <Router>
-        <Routes>
+    <Router>
+      <Routes>
+        {/* Always reachable, even before activation, so the lock screen can send users here */}
+        <Route path="/upgrade" element={<UpgradePaywall />} />
+
+        {/* Everything else is gated behind trial/activation status */}
+        <Route element={<ProtectedLayout />}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/invoice" element={<InvoiceGenerator />} />
+          <Route path="/invoice-generator" element={<InvoiceGenerator />} />
+          <Route path="/invoice-generator/:invoiceId" element={<InvoiceGenerator />} />
+          <Route path="/invoice-generator/:invoiceId/duplicate" element={<InvoiceGenerator />} />
+          <Route path="/invoices/:invoiceId" element={<InvoiceGenerator />} />
+          <Route path="/invoices/:invoiceId/duplicate" element={<InvoiceGenerator />} />
           <Route path="/inventory" element={<InventoryManager />} />
           <Route path="/purchase-invoices" element={<PurchaseInvoice />} />
           <Route path="/amc-tracking" element={<AmcTracking />} />
@@ -820,9 +979,10 @@ function App() {
           <Route path="/vendor-ledger" element={<VendorLedger />} />
           <Route path="/stock-history" element={<StockHistory />} />
           <Route path="/reports" element={<SalesReports />} />
-        </Routes>
-      </Router>
-    </AppActivationWrapper>
+          <Route path="/saved-invoices" element={<SavedInvoices />} />
+        </Route>
+      </Routes>
+    </Router>
   );
 }
 

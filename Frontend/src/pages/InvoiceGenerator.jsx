@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams, useLocation } from "react-router-dom";
 import api from "../api/axios";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
@@ -43,6 +43,11 @@ const LoadingButton = ({ onClick, children, className, style, title, type = "but
 export default function BillingConsole() {
   const invoiceRef = useRef(null);
   const navigate = useNavigate();
+  const { invoiceId } = useParams();
+  const location = useLocation();
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadError, setLoadError] = useState(null);
+  const [editMode, setEditMode] = useState(null); // 'edit' or 'duplicate' or null for new
 
   const [paperSize, setPaperSize] = useState("a4");
   const [isPaidMarked, setIsPaidMarked] = useState(false);
@@ -145,6 +150,8 @@ export default function BillingConsole() {
         gst_rate: 18,
         discount_percent: 0,
         manual_quantity: null,
+        quantity_mode: "PCS",
+        meter_quantity: null,
         subItems: [{ sn_code: "" }],
       },
     ]
@@ -177,12 +184,26 @@ export default function BillingConsole() {
     return `${prefix}${maxNum + 1}`;
   };
 
+  const isMeterMode = (item) => item.quantity_mode === "MTR";
+
   const getEffectiveQty = (item) => {
+    if (isMeterMode(item)) {
+      return Number(item.meter_quantity) || 0;
+    }
     if (item.manual_quantity !== undefined && item.manual_quantity !== null && item.manual_quantity !== "") {
       return Number(item.manual_quantity) || 0;
     }
     return item.subItems ? item.subItems.length : 0;
   };
+
+  // Unit label shown next to the quantity for this item ("PCS" or "MTR")
+  const getQtyUnit = (item) => (isMeterMode(item) ? "MTR" : "PCS");
+
+  // Quantity contribution used for the overall document total row.
+  // Meter-based items (e.g. wires/cables) are billed by length but are
+  // counted as a single billing unit ("1 quantity") in the grand total,
+  // per the checkbox mode selected for that item.
+  const getBillingUnitCount = (item) => (isMeterMode(item) ? 1 : getEffectiveQty(item));
 
   const hasManualQuantity = (item) => {
     return item.manual_quantity !== undefined && item.manual_quantity !== null && item.manual_quantity !== "";
@@ -192,6 +213,302 @@ export default function BillingConsole() {
     fetchInvoices();
     fetchInventory();
   }, []);
+
+  // Load invoice by ID from URL parameter
+  useEffect(() => {
+    if (invoiceId) {
+      // Detect if this is a duplicate mode (URL path contains /duplicate)
+      const isDuplicate = location.pathname.includes('/duplicate');
+      setEditMode(isDuplicate ? 'duplicate' : 'edit');
+
+      setIsLoading(true);
+      setLoadError(null);
+      (async () => {
+        try {
+          const res = await api.get(`/invoices/${invoiceId}`);
+          const inv = res.data;
+          
+          if (inv && inv.id) {
+            // Load the invoice data into the form
+            const safeDate = (dateString) => {
+              if (!dateString) return "";
+              try {
+                return new Date(dateString).toISOString().split("T")[0];
+              } catch (e) {
+                return "";
+              }
+            };
+
+            if (isDuplicate) {
+              // For duplicate mode, don't set selectedInvoice (it's a new invoice)
+              // but use similar data
+              setFormData({
+                doc_type: inv.doc_type || "INVOICE",
+                company_name: inv.company_name || "",
+                company_address: inv.company_address || "",
+                company_showroom: inv.company_showroom || "",
+                company_gstin: inv.company_gstin || "",
+                company_state: inv.company_state || "",
+                company_state_code: inv.company_state_code || "",
+                company_phones: inv.company_phones || "",
+                company_email: inv.company_email || "",
+                company_pan: inv.company_pan || "",
+                company_logo: inv.company_logo || "",
+                
+                client_name: inv.client_name || "",
+                client_mobile: inv.client_mobile || "",
+                client_email: inv.client_email || "",
+                client_address: inv.client_address || "",
+                client_gstin: inv.client_gstin || "",
+                client_state: inv.client_state || "",
+                client_state_code: inv.client_state_code || "",
+                place_of_supply: inv.place_of_supply || "",
+                
+                invoice_number: "", // New invoice, so no number yet
+                invoice_date: new Date().toISOString().split("T")[0],
+                delivery_note: inv.delivery_note || "",
+                
+                payment_mode: inv.payment_mode || "FULL",
+                advance_paid: 0, // Reset advance for duplicate
+                due_date: "",
+                emi_start_date: "",
+                
+                reference_no_date: inv.reference_no_date || "",
+                other_references: inv.other_references || "",
+                buyers_order_no: inv.buyers_order_no || "",
+                order_dated: safeDate(inv.order_dated) || "",
+                dispatch_doc_no: inv.dispatch_doc_no || "",
+                delivery_note_date: safeDate(inv.delivery_note_date) || "",
+                dispatched_through: inv.dispatched_through || "",
+                destination: inv.destination || "",
+                terms_of_delivery: inv.terms_of_delivery || "",
+                
+                bank_name: inv.bank_name || "",
+                account_no: inv.account_no || "",
+                branch_ifsc: inv.branch_ifsc || "",
+                qr_code_image: inv.qr_code_image || "",
+                digital_signature: inv.digital_signature || "",
+                
+                installation_charges: Number(inv.installation_charges) || 0,
+                is_gst_enabled: inv.is_gst_enabled !== undefined ? inv.is_gst_enabled : true,
+                
+                show_company_logo: inv.show_company_logo !== undefined ? inv.show_company_logo : true,
+                show_digital_signature: inv.show_digital_signature !== undefined ? inv.show_digital_signature : true,
+                show_qr_code: inv.show_qr_code !== undefined ? inv.show_qr_code : true,
+              });
+
+              // Duplicate items but reset their IDs
+              if (inv.items && Array.isArray(inv.items)) {
+                setItems(inv.items.map(item => ({
+                  ...item,
+                  id: null,
+                })));
+              }
+              
+              setIsPaidMarked(false);
+              setPreMarkAdvance(0);
+            } else {
+              // For edit mode, load everything as-is
+              setSelectedInvoice(inv);
+              const isFullyPaid = inv.payment_status === "PAID";
+              setIsPaidMarked(isFullyPaid);
+              setPreMarkAdvance(isFullyPaid ? 0 : (Number(inv.advance_paid) || 0));
+
+              setFormData({
+                doc_type: inv.doc_type || "INVOICE",
+                company_name: inv.company_name || "",
+                company_address: inv.company_address || "",
+                company_showroom: inv.company_showroom || "",
+                company_gstin: inv.company_gstin || "",
+                company_state: inv.company_state || "",
+                company_state_code: inv.company_state_code || "",
+                company_phones: inv.company_phones || "",
+                company_email: inv.company_email || "",
+                company_pan: inv.company_pan || "",
+                company_logo: inv.company_logo || "",
+                
+                client_name: inv.client_name || "",
+                client_mobile: inv.client_mobile || "",
+                client_email: inv.client_email || "",
+                client_address: inv.client_address || "",
+                client_gstin: inv.client_gstin || "",
+                client_state: inv.client_state || "",
+                client_state_code: inv.client_state_code || "",
+                place_of_supply: inv.place_of_supply || "",
+                
+                invoice_number: inv.invoice_number || "",
+                invoice_date: safeDate(inv.invoice_date) || new Date().toISOString().split("T")[0],
+                delivery_note: inv.delivery_note || "",
+                
+                payment_mode: inv.payment_mode || "FULL",
+                advance_paid: Number(inv.advance_paid) || 0,
+                due_date: safeDate(inv.due_date) || "",
+                emi_start_date: safeDate(inv.emi_start_date) || "",
+                
+                reference_no_date: inv.reference_no_date || "",
+                other_references: inv.other_references || "",
+                buyers_order_no: inv.buyers_order_no || "",
+                order_dated: safeDate(inv.order_dated) || "",
+                dispatch_doc_no: inv.dispatch_doc_no || "",
+                delivery_note_date: safeDate(inv.delivery_note_date) || "",
+                dispatched_through: inv.dispatched_through || "",
+                destination: inv.destination || "",
+                terms_of_delivery: inv.terms_of_delivery || "",
+                
+                bank_name: inv.bank_name || "",
+                account_no: inv.account_no || "",
+                branch_ifsc: inv.branch_ifsc || "",
+                qr_code_image: inv.qr_code_image || "",
+                digital_signature: inv.digital_signature || "",
+                
+                installation_charges: Number(inv.installation_charges) || 0,
+                is_gst_enabled: inv.is_gst_enabled !== undefined ? inv.is_gst_enabled : true,
+                
+                show_company_logo: inv.show_company_logo !== undefined ? inv.show_company_logo : true,
+                show_digital_signature: inv.show_digital_signature !== undefined ? inv.show_digital_signature : true,
+                show_qr_code: inv.show_qr_code !== undefined ? inv.show_qr_code : true,
+              });
+
+              // Populate items — use the same grouping logic as loadInvoiceData
+              // so that items loaded via URL have the same subItems structure
+              // as items loaded directly from the sidebar click handler.
+              (() => {
+                let parsedItems = [];
+                if (typeof inv.items === 'string') {
+                  try { parsedItems = JSON.parse(inv.items); } catch (e) { console.error("Failed to parse items JSON", e); }
+                } else if (Array.isArray(inv.items)) {
+                  parsedItems = inv.items;
+                }
+
+                if (parsedItems && parsedItems.length > 0) {
+                  const grouped = [];
+                  parsedItems.forEach((dbItem) => {
+                    const isMtr = (dbItem.unit || "").toUpperCase() === "MTR";
+                    if (isMtr) {
+                      grouped.push({
+                        id: dbItem.product_id || dbItem.id || null,
+                        description: dbItem.description || "",
+                        hsn_code: dbItem.hsn_code || "",
+                        price: Number(dbItem.price) || 0,
+                        gst_rate: Number(dbItem.gst_rate) || 18,
+                        discount_percent: Number(dbItem.discount_percent) || 0,
+                        manual_quantity: null,
+                        quantity_mode: "MTR",
+                        meter_quantity: dbItem.quantity !== undefined ? dbItem.quantity : null,
+                        subItems: [{ sn_code: "" }],
+                      });
+                      return;
+                    }
+                    const group = grouped.find(
+                      (g) => g.description === dbItem.description && Number(g.price) === Number(dbItem.price) && g.quantity_mode !== "MTR"
+                    );
+                    const snCode = dbItem.sn_code || dbItem.serial_number || "";
+                    if (group) {
+                      group.subItems.push({ sn_code: snCode });
+                      if (dbItem.quantity !== undefined && dbItem.quantity > group.subItems.length) {
+                        group.manual_quantity = dbItem.quantity;
+                      }
+                    } else {
+                      grouped.push({
+                        id: dbItem.product_id || dbItem.id || null,
+                        description: dbItem.description || "",
+                        hsn_code: dbItem.hsn_code || "",
+                        price: Number(dbItem.price) || 0,
+                        gst_rate: Number(dbItem.gst_rate) || 18,
+                        discount_percent: Number(dbItem.discount_percent) || 0,
+                        manual_quantity: dbItem.quantity !== undefined ? dbItem.quantity : null,
+                        quantity_mode: "PCS",
+                        meter_quantity: null,
+                        subItems: [{ sn_code: snCode }],
+                      });
+                    }
+                  });
+                  setItems(grouped);
+                } else {
+                  setItems([{ id: null, description: "", hsn_code: "", price: 0, gst_rate: 18, discount_percent: 0, manual_quantity: null, quantity_mode: "PCS", meter_quantity: null, subItems: [{ sn_code: "" }] }]);
+                }
+              })();
+            }
+          }
+        } catch (error) {
+          console.error("Failed to load invoice:", error);
+          setLoadError(`Failed to load invoice: ${formatError(error)}`);
+        } finally {
+          setIsLoading(false);
+        }
+      })();
+    } else if (location.state?.invoice) {
+      // Handle state-based invoice loading (from SavedInvoices page)
+      const inv = location.state.invoice;
+      const mode = location.state.mode;
+      
+      if (mode === 'edit') {
+        setEditMode('edit');
+        const safeDate = (dateString) => {
+          if (!dateString) return "";
+          try {
+            return new Date(dateString).toISOString().split("T")[0];
+          } catch (e) {
+            return "";
+          }
+        };
+
+        setSelectedInvoice(inv);
+        const isFullyPaid = inv.payment_status === "PAID";
+        setIsPaidMarked(isFullyPaid);
+        setPreMarkAdvance(isFullyPaid ? 0 : (Number(inv.advance_paid) || 0));
+
+        setFormData(prev => ({
+          ...prev,
+          doc_type: inv.doc_type || "INVOICE",
+          invoice_number: inv.invoice_number || "",
+          invoice_date: safeDate(inv.invoice_date) || new Date().toISOString().split("T")[0],
+          client_name: inv.client_name || "",
+        }));
+      } else if (mode === 'duplicate') {
+        setEditMode('duplicate');
+        // Create a new invoice based on an existing one
+        const safeDate = (dateString) => {
+          if (!dateString) return "";
+          try {
+            return new Date(dateString).toISOString().split("T")[0];
+          } catch (e) {
+            return "";
+          }
+        };
+
+        setFormData(prev => ({
+          ...prev,
+          invoice_date: new Date().toISOString().split("T")[0],
+          client_name: inv.client_name || "",
+          client_mobile: inv.client_mobile || "",
+          client_email: inv.client_email || "",
+          client_address: inv.client_address || "",
+          client_gstin: inv.client_gstin || "",
+          client_state: inv.client_state || "",
+          client_state_code: inv.client_state_code || "",
+          place_of_supply: inv.place_of_supply || "",
+          payment_mode: inv.payment_mode || "FULL",
+          advance_paid: 0,
+          due_date: "",
+        }));
+        
+        if (inv.items && Array.isArray(inv.items)) {
+          setItems(inv.items.map(item => ({
+            ...item,
+            id: null, // Reset IDs for new items
+          })));
+        }
+
+        setIsPaidMarked(false);
+        setPreMarkAdvance(0);
+      } else {
+        setEditMode(null); // New invoice
+      }
+    } else {
+      setEditMode(null); // New invoice
+    }
+  }, [invoiceId, location.state, location.pathname]);
 
   useEffect(() => {
     try {
@@ -267,6 +584,11 @@ export default function BillingConsole() {
       const inv = res.data;
 
       setSelectedInvoice(inv);
+
+      // Give this invoice its own bookmarkable/shareable URL: /invoice-generator/:invoiceId
+      if (String(invoiceId) !== String(inv.id)) {
+        navigate(`/invoice-generator/${inv.id}`, { replace: true });
+      }
 
       const isFullyPaid = inv.payment_status === "PAID";
 
@@ -346,10 +668,31 @@ export default function BillingConsole() {
       if (parsedItems && parsedItems.length > 0) {
         const grouped = [];
         parsedItems.forEach((dbItem) => {
+          const isMtr = (dbItem.unit || "").toUpperCase() === "MTR";
+
+          if (isMtr) {
+            // Meter-based (e.g. wire/cable) items are never grouped with
+            // piece-counted items — each stays its own billing line.
+            grouped.push({
+              id: dbItem.product_id || dbItem.id || null,
+              description: dbItem.description || "",
+              hsn_code: dbItem.hsn_code || "",
+              price: Number(dbItem.price) || 0,
+              gst_rate: Number(dbItem.gst_rate) || 18,
+              discount_percent: Number(dbItem.discount_percent) || 0,
+              manual_quantity: null,
+              quantity_mode: "MTR",
+              meter_quantity: dbItem.quantity !== undefined ? dbItem.quantity : null,
+              subItems: [{ sn_code: "" }],
+            });
+            return;
+          }
+
           const group = grouped.find(
             (g) =>
               g.description === dbItem.description &&
-              Number(g.price) === Number(dbItem.price)
+              Number(g.price) === Number(dbItem.price) &&
+              g.quantity_mode !== "MTR"
           );
 
           const snCode = dbItem.sn_code || dbItem.serial_number || "";
@@ -368,13 +711,15 @@ export default function BillingConsole() {
               gst_rate: Number(dbItem.gst_rate) || 18,
               discount_percent: Number(dbItem.discount_percent) || 0,
               manual_quantity: dbItem.quantity !== undefined ? dbItem.quantity : null,
+              quantity_mode: "PCS",
+              meter_quantity: null,
               subItems: [{ sn_code: snCode }],
             });
           }
         });
         setItems(grouped);
       } else {
-        setItems([{ id: null, description: "", hsn_code: "", price: 0, gst_rate: 18, discount_percent: 0, manual_quantity: null, subItems: [{ sn_code: "" }] }]);
+        setItems([{ id: null, description: "", hsn_code: "", price: 0, gst_rate: 18, discount_percent: 0, manual_quantity: null, quantity_mode: "PCS", meter_quantity: null, subItems: [{ sn_code: "" }] }]);
       }
     } catch (error) {
       console.error("Failed to load invoice details", error);
@@ -490,6 +835,8 @@ export default function BillingConsole() {
         gst_rate: 18,
         discount_percent: 0,
         manual_quantity: null,
+        quantity_mode: "PCS",
+        meter_quantity: null,
         subItems: [{ sn_code: "" }],
       },
     ]);
@@ -513,8 +860,10 @@ export default function BillingConsole() {
       } else {
         updated[i].id = null;
       }
-    } else if (field === "manual_quantity") {
+    } else if (field === "manual_quantity" || field === "meter_quantity") {
       updated[i][field] = value === "" ? null : value;
+    } else if (field === "quantity_mode") {
+      updated[i][field] = value;
     } else {
       updated[i][field] =
         value === "" ? "" : field === "hsn_code" ? value : Number(value);
@@ -544,7 +893,21 @@ export default function BillingConsole() {
     items.forEach((item) => {
       const effectiveQty = getEffectiveQty(item);
 
-      if (item.subItems && item.subItems.length > 0) {
+      if (isMeterMode(item)) {
+        // Meter-based (wire/cable) items are billed as a single line at
+        // their full length rather than exploded into per-unit rows.
+        flattenedItems.push({
+          product_id: item.id || null,
+          description: item.description || "General Item",
+          hsn_code: item.hsn_code ? item.hsn_code.trim() : "",
+          quantity: effectiveQty,
+          unit: "MTR",
+          price: Number(item.price) || 0,
+          gst_rate: Number(item.gst_rate) || 18,
+          discount_percent: Number(item.discount_percent) || 0,
+          sn_code: "",
+        });
+      } else if (item.subItems && item.subItems.length > 0) {
         for (let q = 0; q < effectiveQty; q++) {
           const sub = item.subItems[q] || { sn_code: "" };
           flattenedItems.push({
@@ -554,6 +917,7 @@ export default function BillingConsole() {
               (sub.hsn_code ? sub.hsn_code.trim() : "") ||
               (item.hsn_code ? item.hsn_code.trim() : ""),
             quantity: 1,
+            unit: "PCS",
             price: Number(item.price) || 0,
             gst_rate: Number(item.gst_rate) || 18,
             discount_percent: Number(item.discount_percent) || 0,
@@ -567,6 +931,7 @@ export default function BillingConsole() {
             description: item.description || "General Item",
             hsn_code: item.hsn_code ? item.hsn_code.trim() : "",
             quantity: 1,
+            unit: "PCS",
             price: Number(item.price) || 0,
             gst_rate: Number(item.gst_rate) || 18,
             discount_percent: Number(item.discount_percent) || 0,
@@ -637,20 +1002,35 @@ export default function BillingConsole() {
     };
   };
 
-  const handleSaveInvoiceData = async () => {
+  const handleSaveInvoiceData = async ({ navigateOnSave = true } = {}) => {
     if (!formData.client_name || !formData.client_name.trim()) {
       alert("Please enter a Client Name before saving.");
       throw new Error("Missing client name");
     }
     try {
       const payload = compilePayload();
+      let savedInvoice;
       if (selectedInvoice && selectedInvoice.id) {
-        await api.put(`/invoices/${selectedInvoice.id}`, payload);
+        const res = await api.put(`/invoices/${selectedInvoice.id}`, payload);
+        savedInvoice = res.data;
       } else {
-        await api.post("/invoices", payload);
+        const res = await api.post("/invoices", payload);
+        savedInvoice = res.data;
       }
       const updatedInvoices = await fetchInvoices();
       await fetchInventory();
+
+      if (savedInvoice && savedInvoice.id) {
+        setSelectedInvoice(savedInvoice);
+        setIsPaidMarked(savedInvoice.payment_status === "PAID");
+
+        // Every saved invoice (new or edited) gets its own persistent,
+        // bookmarkable/shareable URL: /invoice-generator/:invoiceId
+        if (navigateOnSave && String(invoiceId) !== String(savedInvoice.id)) {
+          navigate(`/invoice-generator/${savedInvoice.id}`, { replace: true });
+        }
+      }
+
       return updatedInvoices;
     } catch (error) {
       const errMsg = formatError(error);
@@ -725,6 +1105,8 @@ export default function BillingConsole() {
       gst_rate: 18,
       discount_percent: 0,
       manual_quantity: null,
+      quantity_mode: "PCS",
+      meter_quantity: null,
       subItems: [{ sn_code: "" }],
     }]);
     setSelectedInvoice(null);
@@ -752,6 +1134,36 @@ export default function BillingConsole() {
       console.error("Failed to delete invoice", error.response?.data || error.message);
       alert(`Failed to delete invoice:\n${errMsg}`);
       setInvoiceToDelete(null);
+    }
+  };
+
+  const markInvoiceAsPaid = async (invoiceId, installmentNo = 0) => {
+    /**
+     * Marks an invoice or specific installment as paid.
+     * installmentNo: 0 = full payment, 1-4 = specific installment
+     */
+    try {
+      const response = await api.post(`/invoice/pay/${invoiceId}/${installmentNo}`);
+      console.log("Payment recorded:", response.data);
+      
+      // Update local state with the updated invoice
+      if (response.data) {
+        setSelectedInvoice(response.data);
+        setIsPaidMarked(response.data.payment_status === "PAID");
+        setFormData(prev => ({
+          ...prev,
+          advance_paid: Number(response.data.advance_paid) || prev.advance_paid,
+        }));
+        // Refresh invoices list
+        await fetchInvoices();
+      }
+      
+      return response.data;
+    } catch (error) {
+      const errMsg = formatError(error);
+      console.error("Failed to mark invoice as paid", error.response?.data || error.message);
+      alert(`Failed to mark invoice as paid:\n${errMsg}`);
+      throw error;
     }
   };
 
@@ -851,7 +1263,7 @@ export default function BillingConsole() {
     }
 
     try {
-      const updatedInvoices = await handleSaveInvoiceData();
+      const updatedInvoices = await handleSaveInvoiceData({ navigateOnSave: false });
       clearDraftAndResetForm(updatedInvoices);
       setShowExitModal(false);
       if (pendingNavigationUrl) {
@@ -1120,20 +1532,20 @@ export default function BillingConsole() {
           scroll-behavior: smooth;
         }
 
-        body::before {
-          content: "";
-          position: fixed;
-          inset: 0;
-          pointer-events: none;
-          z-index: 0;
-          background-image:
-            linear-gradient(rgba(45, 212, 255, 0.05) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(45, 212, 255, 0.05) 1px, transparent 1px);
-          background-size: 42px 42px, 42px 42px;
-          mask-image: radial-gradient(ellipse 80% 60% at 50% 20%, #000 30%, transparent 85%);
-          -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 20%, #000 30%, transparent 85%);
-          animation: gridDrift 14s linear infinite;
-        }
+        // body::before {
+        //   content: "";
+        //   position: fixed;
+        //   inset: 0;
+        //   pointer-events: none;
+        //   z-index: 0;
+        //   background-image:
+        //     linear-gradient(rgba(45, 212, 255, 0.05) 1px, transparent 1px),
+        //     linear-gradient(90deg, rgba(45, 212, 255, 0.05) 1px, transparent 1px);
+        //   background-size: 42px 42px, 42px 42px;
+        //   mask-image: radial-gradient(ellipse 80% 60% at 50% 20%, #000 30%, transparent 85%);
+        //   -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 20%, #000 30%, transparent 85%);
+        //   animation: gridDrift 14s linear infinite;
+        // }
 
         .scan-sweep {
           position: fixed;
@@ -1755,6 +2167,65 @@ export default function BillingConsole() {
           }
         }
       `}</style>
+
+      {isLoading && invoiceId && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            zIndex: 9999,
+            padding: "10px 16px",
+            background: "rgba(45, 212, 255, 0.15)",
+            borderBottom: "1px solid var(--ion)",
+            color: "#e6f7ff",
+            fontFamily: "'Plus Jakarta Sans', sans-serif",
+            fontSize: "13px",
+            textAlign: "center",
+          }}
+        >
+          Loading invoice #{invoiceId}…
+        </div>
+      )}
+
+      {loadError && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            zIndex: 9999,
+            padding: "12px 16px",
+            background: "rgba(239, 68, 68, 0.15)",
+            borderBottom: "1px solid rgba(239, 68, 68, 0.5)",
+            color: "#fca5a5",
+            fontFamily: "'Plus Jakarta Sans', sans-serif",
+            fontSize: "13px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "12px",
+          }}
+        >
+          <span>⚠️ {loadError}</span>
+          <button
+            onClick={() => setLoadError(null)}
+            style={{
+              background: "transparent",
+              border: "1px solid rgba(239, 68, 68, 0.5)",
+              color: "#fca5a5",
+              borderRadius: "4px",
+              padding: "2px 10px",
+              cursor: "pointer",
+              fontSize: "12px",
+            }}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {showExitModal && (
         <div className="modal-overlay">
@@ -2463,70 +2934,178 @@ export default function BillingConsole() {
                       </div>
                     </div>
 
+                    {/* QUANTITY MODE CHECKBOXES: Pieces vs Meter (mutually exclusive) */}
                     <div
                       style={{
-                        background: "rgba(15, 23, 42, 0.4)",
-                        padding: "12px",
-                        borderRadius: "10px",
+                        display: "flex",
+                        gap: "18px",
+                        alignItems: "center",
                         marginBottom: "10px",
-                        borderLeft: "3px solid #2dd4ff",
+                        padding: "8px 12px",
+                        background: "rgba(15, 23, 42, 0.4)",
+                        borderRadius: "10px",
                       }}
                     >
-                      <div
+                      <span
+                        className="item-label"
+                        style={{ margin: 0 }}
+                      >
+                        Quantity Type:
+                      </span>
+                      <label
                         style={{
-                          display: "grid",
-                          gridTemplateColumns: "1fr auto",
-                          gap: "10px",
-                          alignItems: "end",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          fontSize: "12.5px",
+                          color: "#e2e8f0",
+                          cursor: "pointer",
                         }}
                       >
-                        <div>
-                          <span
-                            className="item-label"
-                            style={{ fontSize: "9px" }}
-                          >
-                            Individual Serial Number
-                          </span>
-                          <input
-                            className="input"
-                            style={{ padding: "8px 10px", fontSize: "13px" }}
-                            placeholder="Serial Number"
-                            value={item.subItems[0]?.sn_code || ""}
-                            onChange={(e) => {
-                              const updated = [...items];
-                              if (updated[i].subItems.length === 0) {
-                                updated[i].subItems.push({ sn_code: "" });
-                              }
-                              updated[i].subItems[0].sn_code = e.target.value;
-                              setItems(updated);
-                            }}
-                          />
-                        </div>
-                        <LoadingButton
-                          type="button"
-                          className="btn"
+                        <input
+                          type="checkbox"
+                          checked={!isMeterMode(item)}
+                          onChange={() => {
+                            if (isMeterMode(item)) {
+                              handleItemChange(i, "quantity_mode", "PCS");
+                            }
+                          }}
                           style={{
-                            background: "rgba(16, 185, 129, 0.2)",
-                            color: "#34d399",
-                            border: "1px solid rgba(16, 185, 129, 0.3)",
-                            padding: "0",
-                            width: "38px",
-                            height: "38px",
-                            fontSize: "16px",
+                            width: "15px",
+                            height: "15px",
+                            accentColor: "#2dd4ff",
                           }}
-                          title="Add item variant"
-                          onClick={() => {
-                            const updated = [...items];
-                            updated[i].subItems.push({ sn_code: "" });
-                            setItems(updated);
+                        />
+                        Pieces (PCS)
+                      </label>
+                      <label
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          fontSize: "12.5px",
+                          color: "#e2e8f0",
+                          cursor: "pointer",
+                        }}
+                        title="For wires/cables billed by length. Counted as 1 quantity in the grand total."
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isMeterMode(item)}
+                          onChange={() => {
+                            if (!isMeterMode(item)) {
+                              handleItemChange(i, "quantity_mode", "MTR");
+                            }
                           }}
-                        >
-                          +
-                        </LoadingButton>
-                      </div>
+                          style={{
+                            width: "15px",
+                            height: "15px",
+                            accentColor: "#2dd4ff",
+                          }}
+                        />
+                        Meter (MTR) — for wires
+                      </label>
                     </div>
 
-                    {item.subItems &&
+                    {isMeterMode(item) && (
+                      <div
+                        style={{
+                          background: "rgba(15, 23, 42, 0.4)",
+                          padding: "12px",
+                          borderRadius: "10px",
+                          marginBottom: "10px",
+                          borderLeft: "3px solid #2dd4ff",
+                        }}
+                      >
+                        <span
+                          className="item-label"
+                          style={{ fontSize: "9px" }}
+                        >
+                          Length in Meters
+                        </span>
+                        <input
+                          className="input"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="e.g. 250"
+                          style={{ padding: "8px 10px", fontSize: "13px" }}
+                          value={item.meter_quantity ?? ""}
+                          onChange={(e) =>
+                            handleItemChange(i, "meter_quantity", e.target.value)
+                          }
+                          title="Total length in meters — billed and shown as MTR, counted as 1 quantity in the grand total"
+                        />
+                      </div>
+                    )}
+
+                    {!isMeterMode(item) && (
+                      <div
+                        style={{
+                          background: "rgba(15, 23, 42, 0.4)",
+                          padding: "12px",
+                          borderRadius: "10px",
+                          marginBottom: "10px",
+                          borderLeft: "3px solid #2dd4ff",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "1fr auto",
+                            gap: "10px",
+                            alignItems: "end",
+                          }}
+                        >
+                          <div>
+                            <span
+                              className="item-label"
+                              style={{ fontSize: "9px" }}
+                            >
+                              Individual Serial Number
+                            </span>
+                            <input
+                              className="input"
+                              style={{ padding: "8px 10px", fontSize: "13px" }}
+                              placeholder="Serial Number"
+                              value={item.subItems[0]?.sn_code || ""}
+                              onChange={(e) => {
+                                const updated = [...items];
+                                if (updated[i].subItems.length === 0) {
+                                  updated[i].subItems.push({ sn_code: "" });
+                                }
+                                updated[i].subItems[0].sn_code = e.target.value;
+                                setItems(updated);
+                              }}
+                            />
+                          </div>
+                          <LoadingButton
+                            type="button"
+                            className="btn"
+                            style={{
+                              background: "rgba(16, 185, 129, 0.2)",
+                              color: "#34d399",
+                              border: "1px solid rgba(16, 185, 129, 0.3)",
+                              padding: "0",
+                              width: "38px",
+                              height: "38px",
+                              fontSize: "16px",
+                            }}
+                            title="Add item variant"
+                            onClick={() => {
+                              const updated = [...items];
+                              updated[i].subItems.push({ sn_code: "" });
+                              setItems(updated);
+                            }}
+                          >
+                            +
+                          </LoadingButton>
+                        </div>
+                      </div>
+                    )}
+
+                    {!isMeterMode(item) &&
+                      item.subItems &&
                       item.subItems.slice(1).map((sub, sIndex) => {
                         const actualIndex = sIndex + 1;
                         return (
@@ -2633,7 +3212,7 @@ export default function BillingConsole() {
                       <div>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
                           <span className="item-label" style={{ margin: 0 }}>Quantity</span>
-                          {hasManualQuantity(item) && (
+                          {!isMeterMode(item) && hasManualQuantity(item) && (
                             <button
                               type="button"
                               style={{ background: "none", border: "none", color: "#2dd4ff", fontSize: "9px", cursor: "pointer", padding: 0, textDecoration: "underline" }}
@@ -2644,15 +3223,29 @@ export default function BillingConsole() {
                             </button>
                           )}
                         </div>
-                        <input
-                          className="input"
-                          type="number"
-                          min="1"
-                          placeholder={autoQty || 1}
-                          value={hasManualQuantity(item) ? item.manual_quantity : ""}
-                          onChange={(e) => handleItemChange(i, "manual_quantity", e.target.value)}
-                          title="Override quantity manually or leave blank for auto count"
-                        />
+                        {isMeterMode(item) ? (
+                          <div
+                            className="input"
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              color: "#94a3b8",
+                            }}
+                            title="Set via Length in Meters field above"
+                          >
+                            {qty} MTR
+                          </div>
+                        ) : (
+                          <input
+                            className="input"
+                            type="number"
+                            min="1"
+                            placeholder={autoQty || 1}
+                            value={hasManualQuantity(item) ? item.manual_quantity : ""}
+                            onChange={(e) => handleItemChange(i, "manual_quantity", e.target.value)}
+                            title="Override quantity manually or leave blank for auto count"
+                          />
+                        )}
                       </div>
 
                       <div>
@@ -3061,17 +3654,9 @@ export default function BillingConsole() {
                       return;
                     }
                     try {
-                      const updatedInvoices = await handleSaveInvoiceData();
-
-                      if (selectedInvoice && selectedInvoice.id) {
-                        const newlySaved = updatedInvoices.find(inv => inv.id === selectedInvoice.id);
-                        if (newlySaved) {
-                          loadInvoiceData(newlySaved);
-                        }
-                      } else {
-                        clearDraftAndResetForm(updatedInvoices);
-                      }
-
+                      // handleSaveInvoiceData refreshes selectedInvoice and
+                      // navigates to this invoice's own URL (/invoices/:id)
+                      await handleSaveInvoiceData();
                       alert("Invoice Saved Successfully!");
                     } catch (e) {
                       // Handled by handleSaveInvoiceData
@@ -3375,7 +3960,7 @@ export default function BillingConsole() {
                                   {item.hsn_code || "-"}
                                 </td>
                                 <td className="text-center">
-                                  <strong>{qty} PCS</strong>
+                                  <strong>{qty} {getQtyUnit(item)}</strong>
                                 </td>
                                 <td className="text-right">
                                   {formData.is_gst_enabled ? rateInclTax.toFixed(2) : ""}
@@ -3383,7 +3968,7 @@ export default function BillingConsole() {
                                 <td className="text-right">
                                   {baseRate.toFixed(2)}
                                 </td>
-                                <td className="text-center">PCS</td>
+                                <td className="text-center">{getQtyUnit(item)}</td>
                                 <td className="text-center">
                                   {discPct > 0 ? `${discPct}%` : "-"}
                                 </td>
@@ -3483,7 +4068,7 @@ export default function BillingConsole() {
                               <td></td>
                               <td className="text-center">
                                 <strong>
-                                  {items.reduce((acc, it) => acc + getEffectiveQty(it), 0)} PCS
+                                  {items.reduce((acc, it) => acc + getBillingUnitCount(it), 0)} PCS
                                 </strong>
                               </td>
                               <td></td>

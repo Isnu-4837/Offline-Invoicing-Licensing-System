@@ -372,7 +372,164 @@ def get_all_invoices(db: Session):
             inv.remaining_amount = max(0.0, amount - advance)
     return invoices
 
-def get_invoice_by_id(db: Session, invoice_id: int): return db.query(models.Invoice).filter(models.Invoice.id == invoice_id).first()
+def get_invoice_by_id(db: Session, invoice_id: int): 
+    return db.query(models.Invoice).filter(models.Invoice.id == invoice_id).first()
+
+def update_invoice(db: Session, invoice_id: int, data):
+    """Updates an existing invoice by ID."""
+    invoice = db.query(models.Invoice).filter(models.Invoice.id == invoice_id).first()
+    if not invoice:
+        return None
+    
+    client_name = getattr(data, 'client_name', None)
+    if not client_name or not client_name.strip():
+        client_name = "Walk-in Customer"
+
+    items_list = [i.dict() if hasattr(i, 'dict') else i for i in data.items]
+
+    total_taxable = round(sum(i.quantity * i.price for i in data.items), 2)
+    cgst, sgst, igst = 0.0, 0.0, 0.0
+    
+    if data.is_gst_enabled:
+        for item in data.items:
+            item_tax = round((item.quantity * item.price) * (item.gst_rate / 100), 2)
+            if data.client_state_code == data.firm_state_code:
+                cgst += round(item_tax / 2, 2)
+                sgst += round(item_tax / 2, 2)
+            else:
+                igst += item_tax
+
+    installation_charges = float(getattr(data, 'installation_charges', 0.0) or 0.0)
+    advance_paid = float(getattr(data, 'advance_paid', 0.0) or 0.0)
+    
+    grand_total = round(total_taxable + cgst + sgst + igst + installation_charges, 2)
+    remaining_balance = round(grand_total - advance_paid, 2)
+
+    frontend_status = getattr(data, 'payment_status', None)
+
+    if frontend_status == "PAID":
+        payment_status = "PAID"
+        remaining_balance = 0.0
+    elif frontend_status == "INSTALLMENT":
+        payment_status = "INSTALLMENT"
+    elif frontend_status == "PARTIAL":
+        payment_status = "PARTIAL"
+    elif frontend_status == "DUE":
+        payment_status = "DUE"
+    else:
+        if grand_total > 0 and (remaining_balance <= 0.0 or advance_paid >= grand_total):
+            payment_status = "PAID"
+            remaining_balance = 0.0
+        else:
+            mode_str = str(data.payment_mode or "").upper()
+            if "INSTALLMENT" in mode_str:
+                payment_status = "PARTIAL" if advance_paid > 0 else "INSTALLMENT"
+            else:
+                payment_status = "PARTIAL" if advance_paid > 0 else "DUE"
+
+    installment_schedule = []
+    next_due_date = None
+    
+    mode_str_check = str(data.payment_mode or "").upper()
+
+    if mode_str_check == "FULL" or not data.payment_mode or payment_status == "PAID":
+        next_due_date = parse_date_safe(getattr(data, 'due_date', None))
+    else:
+        parts = 3 if "INSTALLMENT_3" in mode_str_check else (4 if "INSTALLMENT_4" in mode_str_check else 3)
+        
+        base_date_str = getattr(data, 'emi_start_date', None)
+        if not base_date_str or not str(base_date_str).strip():
+            base_date = datetime.now().date()
+        else:
+            try:
+                base_date = datetime.strptime(str(base_date_str).strip(), "%Y-%m-%d").date()
+            except ValueError:
+                base_date = datetime.now().date()
+                
+        part_amount = round(remaining_balance / parts, 2)
+
+        for i in range(parts):
+            if i == parts - 1:
+                amount = round(remaining_balance - (part_amount * (parts - 1)), 2)
+            else:
+                amount = part_amount
+
+            due = base_date + timedelta(days=30 * (i + 1))
+            installment_schedule.append({
+                "installment_no": i + 1,
+                "amount": amount,
+                "due_date": due.strftime("%Y-%m-%d"),
+                "status": "DUE"
+            })
+        
+        next_due_date = (base_date + timedelta(days=30)).strftime("%Y-%m-%d")
+
+    order_date_val = parse_date_safe(getattr(data, 'order_dated', None))
+    delivery_note_date_val = parse_date_safe(getattr(data, 'delivery_note_date', None))
+
+    # Update invoice fields
+    invoice.doc_type = data.doc_type
+    invoice.company_name = data.company_name
+    invoice.company_address = data.company_address
+    invoice.company_showroom = data.company_showroom
+    invoice.company_gstin = data.company_gstin
+    invoice.company_state = data.company_state
+    invoice.company_state_code = data.company_state_code
+    invoice.company_phones = data.company_phones
+    invoice.company_email = data.company_email
+    invoice.company_pan = data.company_pan
+    invoice.company_logo = data.company_logo             
+    invoice.digital_signature = data.digital_signature
+
+    invoice.client_name = client_name
+    invoice.client_mobile = data.client_mobile
+    invoice.client_email = data.client_email
+    invoice.client_address = data.client_address
+    invoice.client_gstin = data.client_gstin
+    invoice.client_state = data.client_state
+    invoice.client_state_code = data.client_state_code
+    invoice.firm_state_code = data.firm_state_code
+    invoice.place_of_supply = data.place_of_supply
+
+    invoice.delivery_note = data.delivery_note
+    invoice.reference_no_date = data.reference_no_date
+    invoice.other_references = data.other_references
+    invoice.buyers_order_no = data.buyers_order_no
+    invoice.order_dated = order_date_val
+    invoice.dispatch_doc_no = data.dispatch_doc_no
+    invoice.delivery_note_date = delivery_note_date_val
+    invoice.dispatched_through = data.dispatched_through
+    invoice.destination = data.destination
+    invoice.terms_of_delivery = data.terms_of_delivery
+
+    invoice.bank_name = data.bank_name
+    invoice.account_no = data.account_no
+    invoice.branch_ifsc = data.branch_ifsc
+    invoice.qr_code_image = data.qr_code_image
+
+    invoice.items = items_list
+    flag_modified(invoice, "items")
+
+    invoice.total_amount = grand_total
+    invoice.advance_paid = advance_paid
+    invoice.installation_charges = installation_charges
+    invoice.remaining_amount = remaining_balance
+    invoice.cgst_total = cgst
+    invoice.sgst_total = sgst
+    invoice.igst_total = igst
+    invoice.payment_mode = data.payment_mode
+    invoice.is_gst_enabled = data.is_gst_enabled
+    invoice.installment_schedule = installment_schedule if installment_schedule else None
+    invoice.payment_status = payment_status
+    invoice.next_due_date = next_due_date
+    invoice.due_date = parse_date_safe(getattr(data, 'due_date', None))
+    invoice.emi_start_date = parse_date_safe(getattr(data, 'emi_start_date', None))
+    invoice.invoice_number = getattr(data, 'invoice_number', invoice.invoice_number)
+    invoice.invoice_date = parse_date_safe(getattr(data, 'invoice_date', None))
+
+    db.commit()
+    db.refresh(invoice)
+    return invoice
 
 def process_payment(db: Session, invoice_id: int, installment_no: int):
     invoice = get_invoice_by_id(db, invoice_id)

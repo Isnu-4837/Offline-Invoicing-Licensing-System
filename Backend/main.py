@@ -9,6 +9,7 @@ from alembic import command
 from pydantic import BaseModel
 import asyncio
 import os
+import platform
 import string
 import random
 import uuid
@@ -33,8 +34,10 @@ APP_SECRET = "ERP_SECURE_2026"
 
 def get_machine_id():
     """Generates a unique hardware ID based on the physical MAC address."""
-    mac_num = hex(uuid.getnode()).replace('0x', '').upper()
-    mac_address = '-'.join(mac_num[i: i + 2] for i in range(0, 11, 2))
+    # Zero-pad to 12 hex chars (6 octets) so slicing is always correct,
+    # even when the leading octet is < 0x10 (would otherwise be 11 chars).
+    mac_num = hex(uuid.getnode()).replace('0x', '').upper().zfill(12)
+    mac_address = '-'.join(mac_num[i: i + 2] for i in range(0, 12, 2))
     return f"MACHINE-{mac_address}"
 
 def run_database_migrations():
@@ -72,10 +75,90 @@ app.add_middleware(
 # SYSTEM & ACTIVATION ROUTES
 # ---------------------------------------------------------------------------
 # --- SYSTEM & ACTIVATION ROUTES (INSTALL-BOUND LICENSING) ---
-import os
 
-# Path to the license file stored in the app's installation directory
-LICENSE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".app_license")
+USER_HOME = os.path.expanduser("~")
+TRIAL_DAYS = 7
+
+def get_app_data_dir() -> str:
+    """
+    Returns the OS-conventional local application-data directory for this app
+    (e.g. %LOCALAPPDATA%\\NextGenERP on Windows, ~/Library/Application Support/
+    NextGenERP on macOS, ~/.local/share/NextGenERP on Linux). Installers/
+    uninstallers know about and clean these locations, unlike an arbitrary
+    dotfile dropped directly in the user's home directory — so license and
+    trial state here actually gets removed on uninstall, re-locking the app
+    on reinstall as intended.
+    """
+    system = platform.system()
+    if system == "Windows":
+        base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA") or USER_HOME
+    elif system == "Darwin":
+        base = os.path.join(USER_HOME, "Library", "Application Support")
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or os.path.join(USER_HOME, ".local", "share")
+    return os.path.join(base, "NextGenERP")
+
+APP_DATA_DIR = get_app_data_dir()
+
+# Ensure the directory exists before trying to write to it
+os.makedirs(APP_DATA_DIR, exist_ok=True)
+
+# Paths for the license and trial markers, stored in the OS app-data folder
+LICENSE_FILE = os.path.join(APP_DATA_DIR, ".app_license")
+TRIAL_FILE = os.path.join(APP_DATA_DIR, ".app_trial")
+
+def _expected_key_for_machine(machine_id: str) -> str:
+    """Derives the expected license key for a given machine ID. Shared by
+    /system/status and /system/activate so the two can't drift apart."""
+    expected_hash = hashlib.sha256((machine_id + APP_SECRET).encode()).hexdigest().upper()
+    expected_base = expected_hash[:12]
+    total = sum(ord(c) for c in expected_base)
+    CHARS = string.ascii_uppercase + string.digits
+    char1 = CHARS[total % len(CHARS)]
+    char2 = CHARS[(total * 7) % len(CHARS)]
+    return expected_base + char1 + char2
+
+def _trial_signature(machine_id: str, start_iso: str) -> str:
+    """Ties a trial marker to one machine and one start date so it can't be
+    hand-edited (to extend the trial) or copied onto another machine."""
+    return hashlib.sha256(f"{machine_id}|{start_iso}|{APP_SECRET}|TRIAL".encode()).hexdigest()
+
+def _read_trial_state(machine_id: str) -> dict:
+    """Returns is_trial / trial_expired / trial_days_remaining / can_start_trial
+    for this machine, based on the signed trial marker (if any)."""
+    if not os.path.exists(TRIAL_FILE):
+        return {"is_trial": False, "trial_expired": False, "trial_days_remaining": 0, "can_start_trial": True}
+
+    try:
+        with open(TRIAL_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        saved_machine = data.get("machine_id", "")
+        start_iso = data.get("start_date", "")
+        saved_sig = data.get("sig", "")
+
+        if saved_machine != machine_id or _trial_signature(machine_id, start_iso) != saved_sig:
+            # Tampered, or copied from another machine's trial file. A trial
+            # marker exists but isn't valid for this machine — don't honor it
+            # and don't allow starting a new one on top of it either.
+            return {"is_trial": False, "trial_expired": True, "trial_days_remaining": 0, "can_start_trial": False}
+
+        start_date = datetime.datetime.fromisoformat(start_iso)
+        elapsed_days = (datetime.datetime.utcnow() - start_date).days
+        days_remaining = TRIAL_DAYS - elapsed_days
+
+        if days_remaining <= 0:
+            return {"is_trial": False, "trial_expired": True, "trial_days_remaining": 0, "can_start_trial": False}
+
+        return {"is_trial": True, "trial_expired": False, "trial_days_remaining": days_remaining, "can_start_trial": False}
+
+    except Exception as e:
+        print(f"[Trial Read Error]: {e}")
+        # Unreadable/corrupt marker — treat as no trial on record yet.
+        return {"is_trial": False, "trial_expired": False, "trial_days_remaining": 0, "can_start_trial": True}
+
+class TrialRequest(BaseModel):
+    machine_id: Optional[str] = None
 
 @app.get("/system/machine-id")
 def get_machine_id_endpoint():
@@ -85,34 +168,89 @@ def get_machine_id_endpoint():
 @app.get("/system/status")
 def get_system_status(db: Session = Depends(get_db)):
     """
-    Checks if this specific installation is licensed.
-    If the app was uninstalled/reinstalled, .app_license is deleted, locking the app.
+    Checks activation + trial status for this installation. Both markers live
+    in the OS app-data folder, so uninstalling the app clears them and
+    re-locks it on reinstall.
     """
-    if not os.path.exists(LICENSE_FILE):
-        return {"is_activated": False, "message": "Fresh install detected. Activation required."}
-    
-    try:
-        with open(LICENSE_FILE, "r", encoding="utf-8") as f:
-            saved_key = f.read().strip()
+    machine_id = get_machine_id()
 
-        # Validate that the saved key matches THIS physical machine
-        machine_id = get_machine_id()
-        expected_hash = hashlib.sha256((machine_id + APP_SECRET).encode()).hexdigest().upper()
-        expected_base = expected_hash[:12]
-        total = sum(ord(c) for c in expected_base)
-        CHARS = string.ascii_uppercase + string.digits
-        char1 = CHARS[total % len(CHARS)]
-        char2 = CHARS[(total * 7) % len(CHARS)]
-        expected_key = expected_base + char1 + char2
-        
-        if saved_key.replace("-", "").upper() == expected_key:
-            return {"is_activated": True}
-        else:
-            return {"is_activated": False, "message": "License invalid for this machine."}
-            
+    if os.path.exists(LICENSE_FILE):
+        try:
+            with open(LICENSE_FILE, "r", encoding="utf-8") as f:
+                saved_key = f.read().strip()
+
+            if saved_key.replace("-", "").upper() == _expected_key_for_machine(machine_id):
+                return {
+                    "is_activated": True,
+                    "is_trial": False,
+                    "trial_days_remaining": 0,
+                    "trial_expired": False,
+                    "can_start_trial": False,
+                }
+            else:
+                return {
+                    "is_activated": False,
+                    "is_trial": False,
+                    "trial_days_remaining": 0,
+                    "trial_expired": False,
+                    "can_start_trial": False,
+                    "message": "License invalid for this machine.",
+                }
+        except Exception as e:
+            print(f"[License Read Error]: {e}")
+
+    trial_state = _read_trial_state(machine_id)
+    return {"is_activated": False, **trial_state}
+
+@app.post("/system/start-trial")
+def start_trial(req: TrialRequest = None, db: Session = Depends(get_db)):
+    """
+    Starts the 7-day free trial for this machine and persists a signed,
+    machine-bound marker in the OS app-data folder. Returns the current
+    trial state if a trial is already running, and rejects the request if
+    the trial for this machine has already been used or the app is
+    already fully activated.
+    """
+    machine_id = get_machine_id()
+
+    if os.path.exists(LICENSE_FILE):
+        try:
+            with open(LICENSE_FILE, "r", encoding="utf-8") as f:
+                saved_key = f.read().strip()
+            if saved_key.replace("-", "").upper() == _expected_key_for_machine(machine_id):
+                raise HTTPException(status_code=400, detail="This machine already has a full license.")
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+
+    trial_state = _read_trial_state(machine_id)
+
+    if trial_state["is_trial"]:
+        return {
+            "success": True,
+            "is_trial": True,
+            "trial_days_remaining": trial_state["trial_days_remaining"],
+        }
+
+    if not trial_state["can_start_trial"]:
+        raise HTTPException(status_code=400, detail="The free trial has already been used on this machine.")
+
+    start_iso = datetime.datetime.utcnow().isoformat()
+    payload = {
+        "machine_id": machine_id,
+        "start_date": start_iso,
+        "sig": _trial_signature(machine_id, start_iso),
+    }
+
+    try:
+        with open(TRIAL_FILE, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
     except Exception as e:
-        print(f"[License Read Error]: {e}")
-        return {"is_activated": False}
+        print(f"[Trial Write Error]: {e}")
+        raise HTTPException(status_code=500, detail="Failed to start trial.")
+
+    return {"success": True, "is_trial": True, "trial_days_remaining": TRIAL_DAYS}
 
 @app.post("/system/activate")
 def activate_system(req: schemas.ActivationRequest, db: Session = Depends(get_db)):
@@ -120,20 +258,13 @@ def activate_system(req: schemas.ActivationRequest, db: Session = Depends(get_db
     Verifies the key against the machine hardware and creates the local installation license.
     """
     machine_id = get_machine_id()
-    
-    expected_hash = hashlib.sha256((machine_id + APP_SECRET).encode()).hexdigest().upper()
-    expected_base = expected_hash[:12]
-    total = sum(ord(c) for c in expected_base)
-    CHARS = string.ascii_uppercase + string.digits
-    char1 = CHARS[total % len(CHARS)]
-    char2 = CHARS[(total * 7) % len(CHARS)]
-    expected_key = expected_base + char1 + char2
-    
+    expected_key = _expected_key_for_machine(machine_id)
+
     clean_key = req.key.replace("-", "").upper()
     if clean_key != expected_key:
         raise HTTPException(status_code=400, detail="Invalid Key. This key is not licensed for this machine.")
     
-    # Save the license directly inside the application installation folder
+    # Save the license in the OS app-data folder
     try:
         with open(LICENSE_FILE, "w", encoding="utf-8") as f:
             f.write(clean_key)
@@ -178,6 +309,26 @@ def get_sales_report(timeframe: str, year: int, month: int = None, db: Session =
 # INVOICE ROUTES
 # ---------------------------------------------------------------------------
 
+@app.get("/invoices/by-number/{invoice_number:path}")
+def get_invoice_by_number(invoice_number: str, db: Session = Depends(get_db)):
+    """
+    Fetches an invoice or quotation by its string invoice_number 
+    (e.g., /invoices/by-number/INV-08/26-6 or URL-encoded).
+    """
+    decoded_number = urllib.parse.unquote(invoice_number)
+    
+    invoice = db.query(models.Invoice).filter(
+        (models.Invoice.invoice_number == decoded_number) | 
+        (models.Invoice.invoice_number == invoice_number)
+    ).first()
+    
+    if not invoice:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Invoice with number '{decoded_number}' not found"
+        )
+    return invoice  
+
 @app.post("/invoices", response_model=None)
 def create_invoice(invoice: schemas.InvoiceCreate, db: Session = Depends(get_db)):
     """Creates an invoice or quotation and updates stock if necessary."""
@@ -186,7 +337,7 @@ def create_invoice(invoice: schemas.InvoiceCreate, db: Session = Depends(get_db)
 @app.put("/invoices/{invoice_id}")
 def update_invoice(invoice_id: int, invoice: schemas.InvoiceCreate, db: Session = Depends(get_db)):
     """Updates an existing invoice."""
-    return crud.create_invoice(db, invoice)
+    return crud.update_invoice(db, invoice_id, invoice)
 
 @app.get("/invoices")
 def get_all(db: Session = Depends(get_db)):

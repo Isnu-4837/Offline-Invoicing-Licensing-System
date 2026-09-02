@@ -9,6 +9,9 @@
     "start": "electron .",
     "build": "electron-builder --win"
   },
+  "dependencies": {
+    "electron-store": "^8.1.0"
+  },
   "build": {
     "appId": "com.keygen.app",
     "productName": "Key Generator Tool",
@@ -19,7 +22,8 @@
     "files": [
       "main.js",
       "index.html",
-      "package.json"
+      "package.json",
+      "node_modules/**/*"
     ]
   },
   "devDependencies": {

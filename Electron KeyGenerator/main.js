@@ -1,6 +1,13 @@
 const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
 const crypto = require("crypto");
+const Store = require("electron-store");
+
+// Initialize secure local configuration store for tracking unique application users
+const store = new Store({
+  name: "key-generator-users-registry",
+  encryptionKey: "KEY_GEN_SECRET_2026"
+});
 
 // MUST match the APP_SECRET in your FastAPI main.py
 const APP_SECRET = "ERP_SECURE_2026";
@@ -16,10 +23,27 @@ function calculateChecksum(baseStr) {
   return char1 + char2;
 }
 
+// Helper function to register and count unique user machine IDs
+function registerUser(machineId) {
+  if (!machineId) return;
+  const cleanId = machineId.trim().toUpperCase();
+  const users = store.get("unique_app_users") || [];
+  if (!users.includes(cleanId)) {
+    users.push(cleanId);
+    store.set("unique_app_users", users);
+  }
+}
+
+// IPC handler to return the total unique user count
+ipcMain.handle("get-total-users", () => {
+  const users = store.get("unique_app_users") || [];
+  return { totalUsers: users.length };
+});
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 480,
-    height: 560, // Slightly taller for the new Machine ID input
+    height: 610, // Expanded slightly to accommodate the user count widget nicely
     autoHideMenuBar: true,
     resizable: false, // Locks the window so your design stays perfect
     webPreferences: {
@@ -39,11 +63,14 @@ app.on("window-all-closed", () => {
   }
 });
 
-// --- NEW IPC HANDLER FOR KEY GENERATION ---
+// --- IPC HANDLER FOR KEY GENERATION & USER REGISTRATION ---
 ipcMain.handle("generate-key", async (event, machineId) => {
   if (!machineId) {
     return { success: false, message: "Machine ID is required!" };
   }
+
+  // Track unique user machine ID when a key is requested
+  registerUser(machineId);
 
   try {
     // 1. Generate the cryptographic hardware hash
