@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import jsPDF from 'jspdf';
 
 const API_BASE = 'http://127.0.0.1:8000';
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
@@ -596,31 +597,216 @@ export default function SavedInvoices() {
     }
   };
 
-  const exportCsv = (list = filteredInvoices, filenameHint = 'invoices') => {
-    const header = ['Invoice No', 'Type', 'Client', 'Mobile', 'Amount', 'Remaining', 'Status', 'Date'];
-    const rows = list.map((inv) => [
-      inv.displayId,
-      inv.docType,
-      inv.client,
-      inv.mobile,
-      inv.amount,
-      inv.remainingAmount,
-      inv.status,
-      formatDate(inv.date),
-    ]);
-    const csv = [header, ...rows]
-      .map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-      .join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${filenameHint}-${new Date().toISOString().split('T')[0]}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+  const exportPdf = (list = filteredInvoices, filenameHint = 'invoices') => {
+    const doc = new jsPDF({ orientation: 'l', unit: 'mm', format: 'a4' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const marginX = 12;
+    const contentWidth = pageWidth - marginX * 2;
+
+    // ---- palette (mirrors the app's own statusMeta accent colors) ----
+    const ink = [17, 24, 39]; // near-black, headings
+    const sub = [107, 114, 128]; // muted gray, secondary text
+    const faint = [156, 163, 175]; // lighter gray, band subtitle
+    const line = [230, 232, 237]; // hairlines
+    const zebra = [249, 250, 252]; // alternating row tint
+    const band = [17, 24, 39]; // dark header band
+
+    const statusColors = {
+      Paid: [52, 199, 148],
+      Pending: [59, 130, 246],
+      Partial: [217, 155, 15],
+      Installment: [124, 92, 246],
+      Overdue: [239, 68, 68],
+    };
+    const tint = (rgb, amt = 0.87) => rgb.map((c) => Math.round(c * (1 - amt) + 255 * amt));
+
+    // Currency uses "Rs." rather than ₹ — jsPDF's built-in standard fonts
+    // don't include the ₹ glyph, so it would render as a blank box.
+    const money = (n) => `Rs. ${Number(n || 0).toLocaleString('en-IN')}`;
+
+    const columns = [
+      { key: 'displayId', label: 'INVOICE NO', width: 30, align: 'left', mono: true },
+      { key: 'docType', label: 'TYPE', width: 20, align: 'left' },
+      { key: 'client', label: 'CLIENT', width: 52, align: 'left' },
+      { key: 'mobile', label: 'MOBILE', width: 26, align: 'left' },
+      { key: 'amount', label: 'AMOUNT', width: 30, align: 'right' },
+      { key: 'remainingAmount', label: 'REMAINING', width: 30, align: 'right' },
+      { key: 'status', label: 'STATUS', width: 26, align: 'center' },
+      { key: 'date', label: 'DATE', width: 28, align: 'left' },
+    ];
+    const tableWidth = columns.reduce((sum, c) => sum + c.width, 0);
+    const tableX = marginX + (contentWidth - tableWidth) / 2;
+    const rowHeight = 8.5;
+    const headerRowHeight = 9;
+    const footerY = pageHeight - 10;
+
+    const generatedOn = new Date().toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    const drawBand = (compact) => {
+      const h = compact ? 16 : 28;
+      doc.setFillColor(...band);
+      doc.rect(0, 0, pageWidth, h, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(compact ? 12 : 18);
+      doc.setTextColor(255, 255, 255);
+      doc.text('Saved Invoices', marginX, compact ? 10 : 15);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(...faint);
+      doc.text(
+        `Generated ${generatedOn}  \u2022  ${list.length} record${list.length === 1 ? '' : 's'}`,
+        marginX,
+        compact ? 14 : 22
+      );
+      return h;
+    };
+
+    const drawTableHeader = (y) => {
+      doc.setFillColor(243, 244, 247);
+      doc.rect(tableX, y, tableWidth, headerRowHeight, 'F');
+      doc.setDrawColor(...band);
+      doc.setLineWidth(0.5);
+      doc.line(tableX, y + headerRowHeight, tableX + tableWidth, y + headerRowHeight);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.8);
+      doc.setTextColor(75, 85, 99);
+      let x = tableX;
+      columns.forEach((col) => {
+        const tx = col.align === 'right' ? x + col.width - 3 : col.align === 'center' ? x + col.width / 2 : x + 3;
+        doc.text(col.label, tx, y + 6, { align: col.align === 'left' ? 'left' : col.align });
+        x += col.width;
+      });
+      return y + headerRowHeight;
+    };
+
+    const drawStatusPill = (status, colX, colWidth, rowY) => {
+      const c = statusColors[status] || sub;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.3);
+      const label = String(status || '').toUpperCase();
+      const textW = doc.getTextWidth(label);
+      const pillW = textW + 5;
+      const pillH = 4.6;
+      const pillX = colX + (colWidth - pillW) / 2;
+      const pillY = rowY + (rowHeight - pillH) / 2;
+      doc.setFillColor(...tint(c));
+      doc.roundedRect(pillX, pillY, pillW, pillH, 1.6, 1.6, 'F');
+      doc.setTextColor(...c);
+      doc.text(label, colX + colWidth / 2, pillY + 3.25, { align: 'center' });
+    };
+
+    const drawStatCards = (y) => {
+      const total = list.length;
+      const totalAmount = list.reduce((s, inv) => s + (Number(inv.amount) || 0), 0);
+      const totalRemaining = list.reduce((s, inv) => s + (Number(inv.remainingAmount) || 0), 0);
+      const overdueCount = list.filter((inv) => inv.status === 'Overdue').length;
+
+      const cards = [
+        { label: 'TOTAL RECORDS', value: String(total), accent: statusColors.Pending },
+        { label: 'TOTAL BILLED', value: money(totalAmount), accent: ink },
+        { label: 'OUTSTANDING', value: money(totalRemaining), accent: statusColors.Partial },
+        { label: 'OVERDUE', value: String(overdueCount), accent: statusColors.Overdue },
+      ];
+
+      const gap = 5;
+      const cardW = (tableWidth - gap * 3) / 4;
+      const cardH = 17;
+      cards.forEach((card, i) => {
+        const x = tableX + i * (cardW + gap);
+        doc.setFillColor(252, 252, 253);
+        doc.setDrawColor(...line);
+        doc.setLineWidth(0.3);
+        doc.roundedRect(x, y, cardW, cardH, 1.8, 1.8, 'FD');
+        doc.setFillColor(...card.accent);
+        doc.roundedRect(x, y, 1.6, cardH, 0.8, 0.8, 'F');
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(...sub);
+        doc.text(card.label, x + 6, y + 6.5);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(12.5);
+        doc.setTextColor(...ink);
+        doc.text(card.value, x + 6, y + 13.5);
+      });
+      return y + cardH;
+    };
+
+    const drawFooters = () => {
+      const totalPages = doc.internal.getNumberOfPages();
+      for (let p = 1; p <= totalPages; p += 1) {
+        doc.setPage(p);
+        doc.setDrawColor(...line);
+        doc.setLineWidth(0.3);
+        doc.line(marginX, footerY, pageWidth - marginX, footerY);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(...faint);
+        doc.text('Billing Console \u2014 Saved Invoices export', marginX, footerY + 5);
+        doc.text(`Page ${p} of ${totalPages}`, pageWidth - marginX, footerY + 5, { align: 'right' });
+      }
+    };
+
+    // ---- page 1: full band + summary cards + table ----
+    let y = drawBand(false) + 8;
+    y = drawStatCards(y) + 8;
+    y = drawTableHeader(y);
+
+    list.forEach((inv, idx) => {
+      if (y + rowHeight > footerY - 2) {
+        doc.addPage();
+        y = drawBand(true) + 6;
+        y = drawTableHeader(y);
+      }
+
+      if (idx % 2 === 1) {
+        doc.setFillColor(...zebra);
+        doc.rect(tableX, y, tableWidth, rowHeight, 'F');
+      }
+
+      let x = tableX;
+      doc.setFontSize(8.3);
+      doc.setTextColor(...ink);
+      columns.forEach((col) => {
+        if (col.key === 'status') {
+          drawStatusPill(inv.status, x, col.width, y);
+          x += col.width;
+          return;
+        }
+
+        const raw =
+          col.key === 'amount' || col.key === 'remainingAmount'
+            ? money(inv[col.key])
+            : col.key === 'date'
+            ? formatDate(inv.date)
+            : String(inv[col.key] ?? (col.key === 'mobile' ? '\u2014' : ''));
+
+        doc.setFont(col.mono ? 'courier' : 'helvetica', col.mono ? 'bold' : 'normal');
+        const fitted = doc.splitTextToSize(raw, col.width - 6)[0] || '';
+        const tx = col.align === 'right' ? x + col.width - 3 : col.align === 'center' ? x + col.width / 2 : x + 3;
+        doc.text(fitted, tx, y + rowHeight / 2 + 1.4, { align: col.align === 'left' ? 'left' : col.align });
+        x += col.width;
+      });
+
+      y += rowHeight;
+    });
+
+    doc.setDrawColor(...line);
+    doc.setLineWidth(0.3);
+    doc.line(tableX, y, tableX + tableWidth, y);
+
+    drawFooters();
+
+    doc.save(`${filenameHint}-${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
-  const exportSelected = () => exportCsv(invoices.filter((inv) => selectedIds.has(inv.id)), 'invoices-selected');
+  const exportSelected = () => exportPdf(invoices.filter((inv) => selectedIds.has(inv.id)), 'invoices-selected');
 
   // ---- keyboard shortcuts ----
   useEffect(() => {
@@ -1268,8 +1454,8 @@ export default function SavedInvoices() {
             <p>{invoices.length} record{invoices.length === 1 ? '' : 's'} in the billing register</p>
           </div>
           <div className="si-header-actions">
-            <button className="si-btn-action si-btn-export" onClick={() => exportCsv()} disabled={!filteredInvoices.length}>
-              ⬇ Export CSV
+            <button className="si-btn-action si-btn-export" onClick={() => exportPdf()} disabled={!filteredInvoices.length}>
+              ⬇ Export as PDF
             </button>
             <button className="si-btn-action si-btn-new" onClick={handleNewInvoice}>
               + New Invoice<kbd>N</kbd>
