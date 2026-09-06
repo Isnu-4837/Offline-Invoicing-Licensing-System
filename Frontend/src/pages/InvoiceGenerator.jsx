@@ -6,6 +6,30 @@ import html2canvas from "html2canvas";
 
 const COMPANY_CACHE_KEY = "billing_company_header_details";
 const DRAFT_STORAGE_KEY = "billing_console_autosave_draft";
+const INVOICE_SEQ_KEY = "billing_console_invoice_seq"; // per-device running counter, INV-xx/yy-N
+const QUOTATION_SEQ_KEY = "billing_console_quotation_seq"; // per-device running counter, QUO-xx/yy-N
+
+// Must match INVOICE_AUTOFILL_KEY in Customers.jsx — that page writes here
+// when the seller clicks "Create Invoice" on a saved customer.
+const CUSTOMER_BUYER_AUTOFILL_KEY = "invoiceAutofillBuyer";
+
+const readPendingInvoiceBuyer = () => {
+  try {
+    const cached = localStorage.getItem(CUSTOMER_BUYER_AUTOFILL_KEY);
+    return cached ? JSON.parse(cached) : null;
+  } catch (e) {
+    console.error("Failed to parse pending buyer autofill", e);
+    return null;
+  }
+};
+
+const clearPendingInvoiceBuyer = () => {
+  try {
+    localStorage.removeItem(CUSTOMER_BUYER_AUTOFILL_KEY);
+  } catch (e) {
+    // non-fatal — worst case the same buyer gets reapplied once more
+  }
+};
 
 const LoadingButton = ({ onClick, children, className, style, title, type = "button", disabled }) => {
   const [isLoading, setIsLoading] = useState(false);
@@ -162,26 +186,85 @@ export default function BillingConsole() {
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [search, setSearch] = useState("");
 
+  const getFYKey = (date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth(); 
+    return String(month >= 3 ? year : year - 1);
+  };
+
+  const fySeqKey = (key) => `${key}_fy`;
+
+  const getStoredSeq = (docType) => {
+    const key = docType === "QUOTATION" ? QUOTATION_SEQ_KEY : INVOICE_SEQ_KEY;
+    const storedFY = localStorage.getItem(fySeqKey(key));
+    const currentFY = getFYKey(new Date());
+    if (storedFY !== null && storedFY !== currentFY) {
+      return 0;
+    }
+    const raw = parseInt(localStorage.getItem(key), 10);
+    return isNaN(raw) ? 0 : raw;
+  };
+
+  const setStoredSeq = (docType, value) => {
+    const key = docType === "QUOTATION" ? QUOTATION_SEQ_KEY : INVOICE_SEQ_KEY;
+    localStorage.setItem(key, String(value));
+    localStorage.setItem(fySeqKey(key), getFYKey(new Date()));
+  };
+
+  const getNumberFY = (num, tag) => {
+    if (!num || !num.startsWith(tag)) return null;
+    const rest = num.substring(tag.length); 
+    const dashIdx = rest.lastIndexOf("-");
+    if (dashIdx === -1) return null;
+    const monthYear = rest.substring(0, dashIdx); 
+    const [mm, yy] = monthYear.split("/");
+    const month = parseInt(mm, 10);
+    const year = parseInt(yy, 10);
+    if (isNaN(month) || isNaN(year)) return null;
+    return getFYKey(new Date(2000 + year, month - 1, 1));
+  };
+
   const getNextInvoiceNumber = (invoices, docType = "INVOICE") => {
     const now = new Date();
     const month = String(now.getMonth() + 1).padStart(2, "0");
     const year = String(now.getFullYear()).slice(-2);
     const prefix = docType === "QUOTATION" ? `QUO-${month}/${year}-` : `INV-${month}/${year}-`;
+    const currentFY = getFYKey(now);
 
-    if (!Array.isArray(invoices)) return `${prefix}1`;
+    let seq = getStoredSeq(docType);
 
-    let maxNum = 0;
-    for (const inv of invoices) {
-      if (inv.invoice_number && inv.invoice_number.trim().startsWith(prefix)) {
-        const suffix = inv.invoice_number.trim().substring(prefix.length);
-        const numPart = parseInt(suffix, 10);
-        if (!isNaN(numPart) && numPart > maxNum) {
-          maxNum = numPart;
-        }
+    const wantTag = docType === "QUOTATION" ? "QUO-" : "INV-";
+    if (Array.isArray(invoices)) {
+      for (const inv of invoices) {
+        const num = inv.invoice_number && inv.invoice_number.trim();
+        if (!num || !num.startsWith(wantTag)) continue;
+        if (getNumberFY(num, wantTag) !== currentFY) continue;
+        const dashIdx = num.lastIndexOf("-");
+        if (dashIdx === -1) continue;
+        const numPart = parseInt(num.substring(dashIdx + 1), 10);
+        if (!isNaN(numPart) && numPart > seq) seq = numPart;
       }
     }
 
-    return `${prefix}${maxNum + 1}`;
+    return `${prefix}${seq + 1}`;
+  };
+
+  const commitInvoiceNumber = (invoiceNumber, docType = "INVOICE") => {
+    if (!invoiceNumber) return;
+    const dashIdx = invoiceNumber.lastIndexOf("-");
+    if (dashIdx === -1) return;
+    const numPart = parseInt(invoiceNumber.substring(dashIdx + 1), 10);
+    if (isNaN(numPart)) return;
+
+    const wantTag = docType === "QUOTATION" ? "QUO-" : "INV-";
+    const numberFY = getNumberFY(invoiceNumber, wantTag);
+    const currentFY = getFYKey(new Date());
+
+    if (numberFY !== null && numberFY !== currentFY) return;
+
+    if (numPart > getStoredSeq(docType)) {
+      setStoredSeq(docType, numPart);
+    }
   };
 
   const isMeterMode = (item) => item.quantity_mode === "MTR";
@@ -196,13 +279,8 @@ export default function BillingConsole() {
     return item.subItems ? item.subItems.length : 0;
   };
 
-  // Unit label shown next to the quantity for this item ("PCS" or "MTR")
   const getQtyUnit = (item) => (isMeterMode(item) ? "MTR" : "PCS");
 
-  // Quantity contribution used for the overall document total row.
-  // Meter-based items (e.g. wires/cables) are billed by length but are
-  // counted as a single billing unit ("1 quantity") in the grand total,
-  // per the checkbox mode selected for that item.
   const getBillingUnitCount = (item) => (isMeterMode(item) ? 1 : getEffectiveQty(item));
 
   const hasManualQuantity = (item) => {
@@ -214,10 +292,8 @@ export default function BillingConsole() {
     fetchInventory();
   }, []);
 
-  // Load invoice by ID from URL parameter
   useEffect(() => {
     if (invoiceId) {
-      // Detect if this is a duplicate mode (URL path contains /duplicate)
       const isDuplicate = location.pathname.includes('/duplicate');
       setEditMode(isDuplicate ? 'duplicate' : 'edit');
 
@@ -229,7 +305,6 @@ export default function BillingConsole() {
           const inv = res.data;
           
           if (inv && inv.id) {
-            // Load the invoice data into the form
             const safeDate = (dateString) => {
               if (!dateString) return "";
               try {
@@ -240,8 +315,6 @@ export default function BillingConsole() {
             };
 
             if (isDuplicate) {
-              // For duplicate mode, don't set selectedInvoice (it's a new invoice)
-              // but use similar data
               setFormData({
                 doc_type: inv.doc_type || "INVOICE",
                 company_name: inv.company_name || "",
@@ -264,12 +337,12 @@ export default function BillingConsole() {
                 client_state_code: inv.client_state_code || "",
                 place_of_supply: inv.place_of_supply || "",
                 
-                invoice_number: "", // New invoice, so no number yet
+                invoice_number: "", 
                 invoice_date: new Date().toISOString().split("T")[0],
                 delivery_note: inv.delivery_note || "",
                 
                 payment_mode: inv.payment_mode || "FULL",
-                advance_paid: 0, // Reset advance for duplicate
+                advance_paid: 0, 
                 due_date: "",
                 emi_start_date: "",
                 
@@ -297,7 +370,6 @@ export default function BillingConsole() {
                 show_qr_code: inv.show_qr_code !== undefined ? inv.show_qr_code : true,
               });
 
-              // Duplicate items but reset their IDs
               if (inv.items && Array.isArray(inv.items)) {
                 setItems(inv.items.map(item => ({
                   ...item,
@@ -308,7 +380,6 @@ export default function BillingConsole() {
               setIsPaidMarked(false);
               setPreMarkAdvance(0);
             } else {
-              // For edit mode, load everything as-is
               setSelectedInvoice(inv);
               const isFullyPaid = inv.payment_status === "PAID";
               setIsPaidMarked(isFullyPaid);
@@ -369,9 +440,6 @@ export default function BillingConsole() {
                 show_qr_code: inv.show_qr_code !== undefined ? inv.show_qr_code : true,
               });
 
-              // Populate items — use the same grouping logic as loadInvoiceData
-              // so that items loaded via URL have the same subItems structure
-              // as items loaded directly from the sidebar click handler.
               (() => {
                 let parsedItems = [];
                 if (typeof inv.items === 'string') {
@@ -416,7 +484,7 @@ export default function BillingConsole() {
                         price: Number(dbItem.price) || 0,
                         gst_rate: Number(dbItem.gst_rate) || 18,
                         discount_percent: Number(dbItem.discount_percent) || 0,
-                        manual_quantity: dbItem.quantity !== undefined ? dbItem.quantity : null,
+                        manual_quantity: null, 
                         quantity_mode: "PCS",
                         meter_quantity: null,
                         subItems: [{ sn_code: snCode }],
@@ -438,7 +506,6 @@ export default function BillingConsole() {
         }
       })();
     } else if (location.state?.invoice) {
-      // Handle state-based invoice loading (from SavedInvoices page)
       const inv = location.state.invoice;
       const mode = location.state.mode;
       
@@ -467,7 +534,6 @@ export default function BillingConsole() {
         }));
       } else if (mode === 'duplicate') {
         setEditMode('duplicate');
-        // Create a new invoice based on an existing one
         const safeDate = (dateString) => {
           if (!dateString) return "";
           try {
@@ -496,17 +562,39 @@ export default function BillingConsole() {
         if (inv.items && Array.isArray(inv.items)) {
           setItems(inv.items.map(item => ({
             ...item,
-            id: null, // Reset IDs for new items
+            id: null, 
           })));
         }
 
         setIsPaidMarked(false);
         setPreMarkAdvance(0);
       } else {
-        setEditMode(null); // New invoice
+        setEditMode(null); 
+      }
+    } else if (location.state?.buyer || readPendingInvoiceBuyer()) {
+      // Arrived here via "Create Invoice" on the Customers page. Prefill
+      // just the buyer (bill-to) fields on this fresh invoice/quotation —
+      // company details, items, and everything else stay untouched.
+      const buyer = location.state?.buyer || readPendingInvoiceBuyer();
+      setEditMode(null);
+      setFormData(prev => ({
+        ...prev,
+        client_name: buyer.name || prev.client_name,
+        client_mobile: buyer.phone || prev.client_mobile,
+        client_gstin: buyer.gstin || prev.client_gstin,
+        client_address: buyer.address || prev.client_address,
+        client_state: buyer.state || prev.client_state,
+        client_state_code: buyer.state_code || prev.client_state_code,
+        place_of_supply: buyer.place_of_supply || prev.place_of_supply,
+      }));
+      // One-shot: clear it so the same buyer doesn't reapply to the next
+      // brand-new invoice, or reappear after a refresh.
+      clearPendingInvoiceBuyer();
+      if (location.state?.buyer) {
+        navigate(location.pathname, { replace: true, state: {} });
       }
     } else {
-      setEditMode(null); // New invoice
+      setEditMode(null); 
     }
   }, [invoiceId, location.state, location.pathname]);
 
@@ -585,7 +673,6 @@ export default function BillingConsole() {
 
       setSelectedInvoice(inv);
 
-      // Give this invoice its own bookmarkable/shareable URL: /invoice-generator/:invoiceId
       if (String(invoiceId) !== String(inv.id)) {
         navigate(`/invoice-generator/${inv.id}`, { replace: true });
       }
@@ -671,8 +758,6 @@ export default function BillingConsole() {
           const isMtr = (dbItem.unit || "").toUpperCase() === "MTR";
 
           if (isMtr) {
-            // Meter-based (e.g. wire/cable) items are never grouped with
-            // piece-counted items — each stays its own billing line.
             grouped.push({
               id: dbItem.product_id || dbItem.id || null,
               description: dbItem.description || "",
@@ -710,7 +795,7 @@ export default function BillingConsole() {
               price: Number(dbItem.price) || 0,
               gst_rate: Number(dbItem.gst_rate) || 18,
               discount_percent: Number(dbItem.discount_percent) || 0,
-              manual_quantity: dbItem.quantity !== undefined ? dbItem.quantity : null,
+              manual_quantity: null, 
               quantity_mode: "PCS",
               meter_quantity: null,
               subItems: [{ sn_code: snCode }],
@@ -894,8 +979,6 @@ export default function BillingConsole() {
       const effectiveQty = getEffectiveQty(item);
 
       if (isMeterMode(item)) {
-        // Meter-based (wire/cable) items are billed as a single line at
-        // their full length rather than exploded into per-unit rows.
         flattenedItems.push({
           product_id: item.id || null,
           description: item.description || "General Item",
@@ -1017,6 +1100,7 @@ export default function BillingConsole() {
         const res = await api.post("/invoices", payload);
         savedInvoice = res.data;
       }
+      commitInvoiceNumber(savedInvoice?.invoice_number || payload.invoice_number, payload.doc_type);
       const updatedInvoices = await fetchInvoices();
       await fetchInventory();
 
@@ -1024,8 +1108,6 @@ export default function BillingConsole() {
         setSelectedInvoice(savedInvoice);
         setIsPaidMarked(savedInvoice.payment_status === "PAID");
 
-        // Every saved invoice (new or edited) gets its own persistent,
-        // bookmarkable/shareable URL: /invoice-generator/:invoiceId
         if (navigateOnSave && String(invoiceId) !== String(savedInvoice.id)) {
           navigate(`/invoice-generator/${savedInvoice.id}`, { replace: true });
         }
@@ -1137,36 +1219,6 @@ export default function BillingConsole() {
     }
   };
 
-  const markInvoiceAsPaid = async (invoiceId, installmentNo = 0) => {
-    /**
-     * Marks an invoice or specific installment as paid.
-     * installmentNo: 0 = full payment, 1-4 = specific installment
-     */
-    try {
-      const response = await api.post(`/invoice/pay/${invoiceId}/${installmentNo}`);
-      console.log("Payment recorded:", response.data);
-      
-      // Update local state with the updated invoice
-      if (response.data) {
-        setSelectedInvoice(response.data);
-        setIsPaidMarked(response.data.payment_status === "PAID");
-        setFormData(prev => ({
-          ...prev,
-          advance_paid: Number(response.data.advance_paid) || prev.advance_paid,
-        }));
-        // Refresh invoices list
-        await fetchInvoices();
-      }
-      
-      return response.data;
-    } catch (error) {
-      const errMsg = formatError(error);
-      console.error("Failed to mark invoice as paid", error.response?.data || error.message);
-      alert(`Failed to mark invoice as paid:\n${errMsg}`);
-      throw error;
-    }
-  };
-
   const downloadPDF = async () => {
     const pages = document.querySelectorAll(".invoice-page");
     if (pages.length === 0) return;
@@ -1186,6 +1238,7 @@ export default function BillingConsole() {
       } else {
         res = await api.post("/invoices", payload);
       }
+      commitInvoiceNumber(res.data?.invoice_number || payload.invoice_number, payload.doc_type);
       const updatedInvoices = await fetchInvoices();
       await fetchInventory();
 
@@ -1203,6 +1256,10 @@ export default function BillingConsole() {
 
       for (let i = 0; i < pages.length; i++) {
         const element = pages[i];
+
+        if (document.fonts && document.fonts.ready) {
+          await document.fonts.ready;
+        }
 
         const canvas = await html2canvas(element, {
           scale: 3,
@@ -1287,12 +1344,6 @@ export default function BillingConsole() {
       inv.client_name.toLowerCase().includes(search.toLowerCase()) ||
       inv.invoice_number.toLowerCase().includes(search.toLowerCase()),
   );
-
-  const getStatusColor = (status) => {
-    if (status === "PAID") return "#10b981";
-    if (status === "PARTIAL") return "#f59e0b";
-    return "#ef4444";
-  };
 
   const formatDate = (dateString) => {
     if (!dateString) return "";
@@ -1437,11 +1488,6 @@ export default function BillingConsole() {
           100% { top: 110%; opacity: 0; }
         }
 
-        @keyframes gridDrift {
-          0% { background-position: 0 0, 0 0; }
-          100% { background-position: 60px 60px, 60px 60px; }
-        }
-
         @keyframes cornerPulse {
           0%, 100% { opacity: 0.55; filter: drop-shadow(0 0 2px currentColor); }
           50% { opacity: 1; filter: drop-shadow(0 0 6px currentColor); }
@@ -1531,21 +1577,6 @@ export default function BillingConsole() {
           margin: 0; 
           scroll-behavior: smooth;
         }
-
-        // body::before {
-        //   content: "";
-        //   position: fixed;
-        //   inset: 0;
-        //   pointer-events: none;
-        //   z-index: 0;
-        //   background-image:
-        //     linear-gradient(rgba(45, 212, 255, 0.05) 1px, transparent 1px),
-        //     linear-gradient(90deg, rgba(45, 212, 255, 0.05) 1px, transparent 1px);
-        //   background-size: 42px 42px, 42px 42px;
-        //   mask-image: radial-gradient(ellipse 80% 60% at 50% 20%, #000 30%, transparent 85%);
-        //   -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 20%, #000 30%, transparent 85%);
-        //   animation: gridDrift 14s linear infinite;
-        // }
 
         .scan-sweep {
           position: fixed;
@@ -1989,7 +2020,7 @@ export default function BillingConsole() {
           padding: 14mm 12mm; 
           box-sizing: border-box; 
           position: relative; 
-          font-family: "Arial", sans-serif; 
+          font-family: Arial, Helvetica, "Segoe UI", "Noto Sans", sans-serif; 
           box-shadow: 0 15px 35px rgba(0,0,0,0.4); 
           overflow: hidden; 
           font-size: 11px; 
@@ -2156,6 +2187,10 @@ export default function BillingConsole() {
         .modal-actions {
           display: flex;
           gap: 12px;
+        }
+        .modal-actions .btn {
+          flex: 1;
+          justify-content: center;
         }
 
         @media (prefers-reduced-motion: reduce) {
@@ -2658,7 +2693,6 @@ export default function BillingConsole() {
                 </div>
               </div>
 
-              {/* PAYMENT MODE & TERMS SELECTION */}
               <div style={{ display: "grid", gridTemplateColumns: formData.payment_mode === "FULL" ? "1fr" : "1fr 1fr", gap: "10px", marginBottom: "10px" }}>
                 <div>
                   <span className="item-label" style={{ color: "#2dd4ff" }}>Payment Mode</span>
@@ -2934,7 +2968,6 @@ export default function BillingConsole() {
                       </div>
                     </div>
 
-                    {/* QUANTITY MODE CHECKBOXES: Pieces vs Meter (mutually exclusive) */}
                     <div
                       style={{
                         display: "flex",
@@ -3654,8 +3687,6 @@ export default function BillingConsole() {
                       return;
                     }
                     try {
-                      // handleSaveInvoiceData refreshes selectedInvoice and
-                      // navigates to this invoice's own URL (/invoices/:id)
                       await handleSaveInvoiceData();
                       alert("Invoice Saved Successfully!");
                     } catch (e) {
@@ -3772,7 +3803,10 @@ export default function BillingConsole() {
                         <tbody>
                           <tr>
                             <td>
-                              <strong>Invoice No.</strong>
+                              {/* FIXED: Dynamically switches label between Invoice No. and Quotation No. */}
+                              <strong>
+                                {formData.doc_type === "QUOTATION" ? "Quotation No." : "Invoice No."}
+                              </strong>
                               <br />
                               {formData.invoice_number}
                             </td>
@@ -4076,7 +4110,9 @@ export default function BillingConsole() {
                               <td></td>
                               <td></td>
                               <td className="text-right">
-                                <strong>₹ {grandTotal.toFixed(2)}</strong>
+                                <strong style={{ whiteSpace: "nowrap" }}>
+                                  ₹&nbsp;{grandTotal.toFixed(2)}
+                                </strong>
                               </td>
                             </tr>
                           </tfoot>
