@@ -17,6 +17,7 @@ import hashlib
 import base64
 import json
 import re
+import traceback
 import urllib.request
 import urllib.error
 import urllib.parse
@@ -806,3 +807,37 @@ async def ocr_receipt(file: UploadFile = File(...)):
         "success": True,
         "items": extracted_data.get("items", [])
     }
+
+@app.get("/customers", response_model=List[schemas.CustomerResponse])
+def get_customers(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    return crud.get_customers(db, skip=skip, limit=limit)
+
+@app.post("/customers", response_model=schemas.CustomerResponse, status_code=201)
+def create_customer(payload: schemas.CustomerCreate, db: Session = Depends(get_db)):
+    try:
+        return crud.create_customer(db, payload)
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/customers/{customer_id}", response_model=schemas.CustomerResponse)
+def update_customer(customer_id: int, payload: schemas.CustomerUpdate, db: Session = Depends(get_db)):
+    try:
+        updated = crud.update_customer(db, customer_id, payload)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Customer not found")
+        return updated
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/customers/{customer_id}", status_code=204)
+def delete_customer(customer_id: int, db: Session = Depends(get_db)):
+    try:
+        deleted = crud.delete_customer(db, customer_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Customer not found")
+        return None
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
