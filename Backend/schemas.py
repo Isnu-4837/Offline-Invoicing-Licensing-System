@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from typing import List, Optional
-from datetime import date
+from datetime import date,datetime
 
 class ActivationRequest(BaseModel):
     key: str
@@ -120,3 +120,49 @@ class InvoiceResponse(InvoiceCreate):
         orm_mode = True
         from_attributes = True
 
+from datetime import date, datetime
+from typing import Optional
+from pydantic import BaseModel
+
+class CustomerBase(BaseModel):
+    name: str
+    phone: str
+    email: Optional[str] = None
+    gstin: Optional[str] = None
+    address: Optional[str] = None
+    state: Optional[str] = None
+    state_code: Optional[str] = None
+    place_of_supply: Optional[str] = None
+    area: Optional[str] = None
+    distance_km: Optional[float] = None
+    total_orders: Optional[int] = 0
+    total_spent: Optional[float] = 0.0
+    last_purchase_date: Optional[date] = None
+    notes: Optional[str] = None
+
+class CustomerCreate(CustomerBase):
+    pass
+
+class CustomerUpdate(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    gstin: Optional[str] = None
+    address: Optional[str] = None
+    state: Optional[str] = None
+    state_code: Optional[str] = None
+    place_of_supply: Optional[str] = None
+    area: Optional[str] = None
+    distance_km: Optional[float] = None
+    total_orders: Optional[int] = None
+    total_spent: Optional[float] = None
+    last_purchase_date: Optional[date] = None
+    notes: Optional[str] = None
+
+class CustomerResponse(CustomerBase):
+    id: int
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
