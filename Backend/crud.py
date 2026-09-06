@@ -4,6 +4,7 @@ from sqlalchemy import extract
 from datetime import datetime, timedelta
 import uuid
 import models
+import schemas
 import re
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -180,6 +181,9 @@ def create_invoice(db: Session, data):
     delivery_note_date_val = parse_date_safe(getattr(data, 'delivery_note_date', None))
 
     if existing_inv:
+        old_doc_type = str(existing_inv.doc_type or "").upper()
+        old_items = existing_inv.items
+
         existing_inv.doc_type = data.doc_type
         existing_inv.company_name = data.company_name
         existing_inv.company_address = data.company_address
@@ -239,6 +243,15 @@ def create_invoice(db: Session, data):
 
         db.commit()
         db.refresh(existing_inv)
+
+        # Keep inventory in sync with what's actually billed: give back
+        # whatever the previous save had reserved, then deduct what this
+        # save bills. Quotations never touch stock either way.
+        if old_doc_type == "INVOICE":
+            _apply_inventory_delta(db, old_items, +1, f"Revised {existing_inv.invoice_number}")
+        if str(data.doc_type or "").upper() == "INVOICE":
+            _apply_inventory_delta(db, data.items, -1, existing_inv.invoice_number)
+
         return existing_inv
 
     else:
@@ -268,6 +281,10 @@ def create_invoice(db: Session, data):
         db.add(invoice)
         db.commit()
         db.refresh(invoice)
+
+        if str(data.doc_type or "").upper() == "INVOICE":
+            _apply_inventory_delta(db, data.items, -1, invoice.invoice_number)
+
         return invoice
 
 
@@ -344,6 +361,35 @@ def log_stock_change(db: Session, product_name: str, action: str, qty_change: in
 
 def get_inventory(db: Session): return db.query(models.Inventory).all()
 
+def _apply_inventory_delta(db: Session, items, sign: int, reference: str):
+    """
+    Adjusts stock for each line item that references a real product.
+    sign=-1 deducts (a sale being billed), sign=+1 restocks (an old
+    version of an invoice being replaced/edited, or an invoice deleted).
+    Only ever called for doc_type == "INVOICE" — quotations never touch stock.
+    """
+    if not items:
+        return
+    for item in items:
+        item_dict = item.dict() if hasattr(item, 'dict') else item
+        product_id = item_dict.get("product_id") or item_dict.get("id")
+        quantity = item_dict.get("quantity") or 0
+        if not product_id or not quantity:
+            continue
+        product = db.query(models.Inventory).filter(models.Inventory.id == product_id).first()
+        if not product:
+            continue
+        delta = sign * quantity
+        product.stock_quantity = (product.stock_quantity or 0) + delta
+        log_stock_change(
+            db,
+            product.product_name,
+            "SALE" if sign < 0 else "RETURN",
+            int(delta),
+            int(product.stock_quantity),
+            reference or "Invoice"
+        )
+
 def add_inventory_item(db: Session, item_data):
     db_item = models.Inventory(**item_data.dict())
     db.add(db_item)
@@ -380,7 +426,10 @@ def update_invoice(db: Session, invoice_id: int, data):
     invoice = db.query(models.Invoice).filter(models.Invoice.id == invoice_id).first()
     if not invoice:
         return None
-    
+
+    old_doc_type = str(invoice.doc_type or "").upper()
+    old_items = invoice.items
+
     client_name = getattr(data, 'client_name', None)
     if not client_name or not client_name.strip():
         client_name = "Walk-in Customer"
@@ -529,6 +578,16 @@ def update_invoice(db: Session, invoice_id: int, data):
 
     db.commit()
     db.refresh(invoice)
+
+    # Re-sync inventory: give back whatever the pre-edit version of this
+    # invoice had reserved, then deduct what's actually billed now. Net
+    # effect is a no-op if quantities didn't change, and a correct delta
+    # if they did. Quotations never touch stock.
+    if old_doc_type == "INVOICE":
+        _apply_inventory_delta(db, old_items, +1, f"Revised {invoice.invoice_number}")
+    if str(data.doc_type or "").upper() == "INVOICE":
+        _apply_inventory_delta(db, data.items, -1, invoice.invoice_number)
+
     return invoice
 
 def process_payment(db: Session, invoice_id: int, installment_no: int):
@@ -655,3 +714,56 @@ def get_invoices(db: Session, skip: int = 0, limit: int = 100):
             inv.remaining_amount = max(0.0, amount - advance)
             
     return invoices
+
+def get_customer(db: Session, customer_id: int):
+    return db.query(models.Customer).filter(models.Customer.id == customer_id).first()
+
+def get_customers(db: Session, skip: int = 0, limit: int = 100):
+    return db.query(models.Customer).offset(skip).limit(limit).all()
+
+def create_customer(db: Session, customer: schemas.CustomerCreate):
+    db_customer = models.Customer(
+        name=customer.name,
+        phone=customer.phone,
+        email=customer.email,
+        gstin=customer.gstin,                 # <-- Added
+        address=customer.address,
+        state=customer.state,                 # <-- Added
+        state_code=customer.state_code,       # <-- Added
+        place_of_supply=customer.place_of_supply, # <-- Added
+        area=customer.area,
+        distance_km=customer.distance_km,
+        total_orders=customer.total_orders or 0,
+        total_spent=customer.total_spent or 0.0,
+        last_purchase_date=customer.last_purchase_date,
+        notes=customer.notes
+    )
+    db.add(db_customer)
+    db.commit()
+    db.refresh(db_customer)
+    return db_customer
+
+def update_customer(db: Session, customer_id: int, customer: schemas.CustomerUpdate):
+    db_customer = get_customer(db, customer_id)
+    if not db_customer:
+        return None
+    
+    update_data = customer.dict(exclude_unset=True)
+    
+    for key, value in update_data.items():
+        if value == "":
+            value = None
+        setattr(db_customer, key, value)
+        
+    db.commit()
+    db.refresh(db_customer)
+    return db_customer
+    
+def delete_customer(db: Session, customer_id: int):
+    db_customer = get_customer(db, customer_id)
+    if not db_customer:
+        return None
+        
+    db.delete(db_customer)
+    db.commit()
+    return db_customer      
