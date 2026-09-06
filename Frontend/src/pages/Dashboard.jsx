@@ -55,9 +55,26 @@ export default function Dashboard() {
   const [exportingType, setExportingType] = useState(null); // null | "ALL" | "DUES"
   const [now, setNow] = useState(new Date());
 
+  // Footer CTA depends on activation state: trial users see "buy a key",
+  // activated users see "About Us" instead. null = still loading.
+  const [licenseStatus, setLicenseStatus] = useState({ isActivated: null, isTrial: false });
+
   useEffect(() => {
     fetchStats();
+    fetchLicenseStatus();
   }, []);
+
+  const fetchLicenseStatus = async () => {
+    try {
+      const res = await api.get("/system/status");
+      const { is_activated = false, is_trial = false, trial_expired = false } = res.data || {};
+      setLicenseStatus({ isActivated: !!is_activated, isTrial: !!is_trial && !trial_expired });
+    } catch (error) {
+      console.error("Failed to fetch license status", error);
+      // Fail safe: assume not activated rather than showing "About Us" incorrectly
+      setLicenseStatus({ isActivated: false, isTrial: false });
+    }
+  };
 
   // Live ticking clock for the futuristic status strip
   useEffect(() => {
@@ -594,7 +611,7 @@ export default function Dashboard() {
         /* Top Action Cards */
         .action-cards-container {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
+          grid-template-columns: repeat(4, 1fr);
           gap: 20px;
           margin-bottom: 24px;
         }
@@ -685,9 +702,24 @@ export default function Dashboard() {
           box-shadow: 0 0 0 1px rgba(167,139,250,0.15) inset; 
         }
 
+        .action-card.customers-card {
+          border: 1px solid rgba(251, 113, 133, 0.18);
+          animation-delay: 0.11s;
+          --accent-a: var(--rose);
+          --accent-b: var(--amber);
+        }
+        .action-card.customers-card:hover {
+          box-shadow: 0 18px 40px -12px rgba(251, 113, 133, 0.32);
+          border-color: rgba(251, 113, 133, 0.4);
+        }
+        .customers-card .action-icon {
+          background: rgba(251, 113, 133, 0.12);
+          box-shadow: 0 0 0 1px rgba(251, 113, 133, 0.15) inset;
+        }
+
         .action-card.inventory-card {
           border: 1px solid rgba(52, 211, 153, 0.18);
-          animation-delay: 0.12s;
+          animation-delay: 0.14s;
           --accent-a: var(--emerald);
           --accent-b: var(--violet);
         }
@@ -1110,6 +1142,59 @@ export default function Dashboard() {
           transform: translateY(-1px);
         }
 
+        /* Footer CTA — sits above the "Powered by" line; content/style flips with activation state */
+        .footer-cta-row {
+          display: flex;
+          justify-content: center;
+          margin-bottom: 16px;
+        }
+
+        .footer-cta-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          border: none;
+          border-radius: 999px;
+          padding: 10px 22px;
+          font-family: inherit;
+          font-size: 12.5px;
+          font-weight: 700;
+          letter-spacing: 0.2px;
+          cursor: pointer;
+          transition: transform 0.2s ease, box-shadow 0.2s ease, background-position 0.3s ease;
+          white-space: nowrap;
+        }
+
+        .footer-cta-buy {
+          background: linear-gradient(135deg, var(--amber) 0%, #f97316 100%);
+          background-size: 160% 160%;
+          color: #1c1300;
+          box-shadow: 0 4px 16px rgba(251, 191, 36, 0.25);
+        }
+
+        .footer-cta-buy:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 8px 22px rgba(251, 191, 36, 0.4);
+          background-position: 100% 0%;
+        }
+
+        .footer-cta-about {
+          background: rgba(56, 189, 248, 0.1);
+          border: 1px solid rgba(56, 189, 248, 0.3);
+          color: var(--sky);
+        }
+
+        .footer-cta-about:hover {
+          background: rgba(56, 189, 248, 0.18);
+          border-color: var(--sky);
+          transform: translateY(-2px);
+          box-shadow: 0 6px 18px rgba(56, 189, 248, 0.25);
+        }
+
+        .footer-cta-btn:active {
+          transform: translateY(0);
+        }
+
         /* Modal */
         .modal-overlay { 
           position: fixed; 
@@ -1243,6 +1328,18 @@ export default function Dashboard() {
           </div>
 
           <div
+            className="action-card customers-card tilt-card"
+            onClick={() => navigate("/customers")}
+            onMouseMove={handleTilt}
+            onMouseLeave={resetTilt}
+          >
+            <span className="card-spotlight" />
+            <div className="action-icon">🧑‍🤝‍🧑</div>
+            <div className="action-title">Customer Directory</div>
+            <div className="action-sub">Track frequent &amp; local buyers</div>
+          </div>
+
+          <div
             className="action-card inventory-card tilt-card"
             onClick={() => navigate("/inventory")}
             onMouseMove={handleTilt}
@@ -1361,7 +1458,7 @@ export default function Dashboard() {
           ))}
         </div>
 
-        {/* Footer */}
+          {/* Footer */}
         <div className="dashboard-footer">
           <div>Powered &amp; Developed By <strong> ISNU GUPTA</strong> © 2026</div>
           <div className="footer-links">
@@ -1370,6 +1467,7 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
 
       {/* REPORT GENERATION MODAL */}
       {showReportModal && (
