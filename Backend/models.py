@@ -1,5 +1,5 @@
 import enum
-from sqlalchemy import Column, Integer, String, Float, DateTime, JSON, Boolean
+from sqlalchemy import Column, Integer, String, Float, DateTime, JSON, Boolean, Date, Text
 from sqlalchemy.sql import func
 from db import Base
 
@@ -171,3 +171,25 @@ class SystemConfig(Base):
     is_activated = Column(Boolean, default=False)
     license_key = Column(String, nullable=True)
     machine_id = Column(String, nullable=True)
+
+class Customer(Base):
+    __tablename__ = "customers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, index=True, nullable=False)
+    phone = Column(String, index=True, nullable=False)
+    email = Column(String, nullable=True)
+    gstin = Column(String, nullable=True)          # <-- Added
+    address = Column(Text, nullable=True)
+    state = Column(String, nullable=True)          # <-- Added
+    state_code = Column(String, nullable=True)     # <-- Added
+    place_of_supply = Column(String, nullable=True) # <-- Added
+    area = Column(String, index=True, nullable=True)
+    distance_km = Column(Float, nullable=True)
+    total_orders = Column(Integer, default=0)
+    total_spent = Column(Float, default=0.0)
+    last_purchase_date = Column(Date, nullable=True)
+    notes = Column(Text, nullable=True)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
