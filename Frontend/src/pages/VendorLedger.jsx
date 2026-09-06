@@ -177,6 +177,16 @@ export default function VendorLedger() {
 
         * { box-sizing: border-box; }
 
+        :root {
+          /* Muted clay/rose — reserved for "money due" signals only, dialed back from a neon red */
+          --due: #e07a7f;
+          --due-deep: #9c4a4f;
+          --due-soft: rgba(224, 122, 127, 0.14);
+          --sky: #38bdf8;
+          --violet: #a78bfa;
+          --emerald: #34d399;
+        }
+
        body {
   background-color: #08080b;
   font-family: 'Plus Jakarta Sans', sans-serif;
@@ -192,7 +202,7 @@ export default function VendorLedger() {
         @keyframes rowIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes floatIcon { 0%, 100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-6px) rotate(-3deg); } }
         @keyframes shimmer { 0% { background-position: -300px 0; } 100% { background-position: 300px 0; } }
-        @keyframes pulseRing { 0%, 100% { box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.25); } 50% { box-shadow: 0 0 0 6px rgba(244, 63, 94, 0); } }
+        @keyframes pulseRing { 0%, 100% { box-shadow: 0 0 0 0 rgba(224, 122, 127, 0.28); } 50% { box-shadow: 0 0 0 6px rgba(224, 122, 127, 0); } }
         @keyframes toastIn { from { opacity: 0; transform: translateX(30px); } to { opacity: 1; transform: translateX(0); } }
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes checkPop { 0% { transform: scale(0.6); opacity: 0; } 60% { transform: scale(1.15); } 100% { transform: scale(1); opacity: 1; } }
@@ -203,11 +213,11 @@ export default function VendorLedger() {
         @keyframes drift { 0%, 100% { transform: translate(0,0) scale(1); } 50% { transform: translate(22px, -16px) scale(1.05); } }
 
         .bg-blob { position: fixed; border-radius: 50%; filter: blur(90px); opacity: 0.18; pointer-events: none; z-index: 0; }
-        .bg-blob.b1 { width: 420px; height: 420px; top: -140px; right: -120px; background: radial-gradient(circle, #f43f5e, transparent 70%); animation: drift 15s ease-in-out infinite; }
+        .bg-blob.b1 { width: 420px; height: 420px; top: -140px; right: -120px; background: radial-gradient(circle, var(--due), transparent 70%); opacity: 0.13; animation: drift 15s ease-in-out infinite; }
         .bg-blob.b2 { width: 360px; height: 360px; bottom: -140px; left: -100px; background: radial-gradient(circle, #38bdf8, transparent 70%); animation: drift 18s ease-in-out infinite reverse; }
         .bg-blob.b3 { width: 280px; height: 280px; top: 45%; left: 60%; background: radial-gradient(circle, #a78bfa, transparent 70%); opacity: 0.12; animation: drift 21s ease-in-out infinite; }
 
-        .scan-line { position: fixed; left: 0; right: 0; height: 140px; background: linear-gradient(180deg, transparent, rgba(244, 63, 94, 0.045), transparent); pointer-events: none; z-index: 0; animation: scanSweep 11s linear infinite; }
+        .scan-line { position: fixed; left: 0; right: 0; height: 140px; background: linear-gradient(180deg, transparent, rgba(224, 122, 127, 0.03), transparent); pointer-events: none; z-index: 0; animation: scanSweep 11s linear infinite; }
 
         .page-container { max-width: 1150px; margin: auto; padding: 40px 20px 70px; animation: fadeInUp 0.55s cubic-bezier(0.16,1,0.3,1) both; position: relative; z-index: 1; }
 
@@ -235,7 +245,7 @@ export default function VendorLedger() {
 
         .page-title {
           margin: 4px 0 0; font-size: 1.7rem; font-weight: 800; font-family: 'Space Grotesk', 'Plus Jakarta Sans', sans-serif; letter-spacing: -0.01em;
-          background: linear-gradient(90deg, #ffffff 0%, #f43f5e 45%, #38bdf8 75%, #ffffff 100%);
+          background: linear-gradient(90deg, #ffffff 0%, var(--due) 45%, #38bdf8 75%, #ffffff 100%);
           background-size: 260% auto; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
           animation: gradientSweepText 8s linear infinite;
         }
@@ -264,25 +274,30 @@ export default function VendorLedger() {
         /* ---- Summary card ---- */
         .summary-card {
           position: relative;
-          background: linear-gradient(135deg, #f43f5e 0%, #be123c 100%);
+          background: linear-gradient(150deg, rgba(48,26,28,0.9) 0%, rgba(20,16,20,0.94) 55%, rgba(16,17,22,0.96) 100%);
+          border: 1px solid rgba(224,122,127,0.22);
           padding: 30px; border-radius: 18px; margin-bottom: 18px;
-          box-shadow: 0 14px 34px rgba(225, 29, 72, 0.28);
+          box-shadow: 0 14px 34px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05);
           display: flex; justify-content: space-between; align-items: center;
           overflow: hidden;
           animation: fadeInUp 0.55s cubic-bezier(0.16,1,0.3,1) 0.04s both;
           transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
-          transition: transform 0.25s cubic-bezier(0.16,1,0.3,1), box-shadow 0.3s ease;
+          transition: transform 0.25s cubic-bezier(0.16,1,0.3,1), box-shadow 0.3s ease, border-color 0.3s ease;
         }
-        .summary-card:hover { box-shadow: 0 20px 44px rgba(225, 29, 72, 0.4); }
+        .summary-card:hover { box-shadow: 0 20px 44px rgba(0,0,0,0.48), inset 0 1px 0 rgba(255,255,255,0.06); border-color: rgba(224,122,127,0.34); }
         .summary-card::before {
           content: ''; position: absolute; inset: 0; border-radius: inherit;
-          background: linear-gradient(120deg, transparent 20%, rgba(255,255,255,0.14) 50%, transparent 80%);
+          background: linear-gradient(120deg, transparent 20%, rgba(255,255,255,0.08) 50%, transparent 80%);
           transform: translateX(-100%); transition: transform 0.7s ease; pointer-events: none;
         }
         .summary-card:hover::before { transform: translateX(100%); }
-        .summary-card h2 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: rgba(255,255,255,0.85); font-weight: 700; position: relative; }
-        .summary-card .amount { font-size: 3rem; font-weight: 800; margin: 5px 0 0 0; font-family: 'Space Grotesk', sans-serif; position: relative; }
-        .summary-icon { position: absolute; right: -10px; bottom: -20px; font-size: 8rem; opacity: 0.15; animation: floatIcon 6s ease-in-out infinite; }
+        .summary-card::after {
+          content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+          background: radial-gradient(340px circle at 88% 30%, rgba(224,122,127,0.22), transparent 60%);
+        }
+        .summary-card h2 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: rgba(255,255,255,0.6); font-weight: 700; position: relative; }
+        .summary-card .amount { font-size: 3rem; font-weight: 800; margin: 5px 0 0 0; font-family: 'Space Grotesk', sans-serif; position: relative; background: linear-gradient(100deg, #ffffff, var(--due) 130%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+        .summary-icon { position: absolute; right: -10px; bottom: -20px; font-size: 8rem; opacity: 0.1; animation: floatIcon 6s ease-in-out infinite; filter: grayscale(0.3); }
 
         /* ---- Stat strip ---- */
         .stat-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 26px; }
@@ -295,7 +310,7 @@ export default function VendorLedger() {
           transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.25s ease;
           transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
         }
-        .stat-chip:hover { transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(-3px); border-color: rgba(244,63,94,0.3); box-shadow: 0 14px 28px -16px rgba(244,63,94,0.3); }
+        .stat-chip:hover { transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(-3px); border-color: rgba(167,139,250,0.28); box-shadow: 0 14px 28px -16px rgba(56,189,248,0.22); }
         .stat-chip-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: #7d8798; font-weight: 700; margin-bottom: 6px; position: relative; }
         .stat-chip-value { font-size: 1.3rem; font-weight: 800; font-family: 'Space Grotesk', sans-serif; position: relative; }
 
@@ -313,17 +328,20 @@ export default function VendorLedger() {
         .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px; gap: 15px; flex-wrap: wrap; }
         .search-input { flex: 1; min-width: 220px; padding: 12px 16px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.09); background: rgba(255,255,255,0.03); color: white; font-size: 14px; outline: none; transition: 0.2s; font-family: inherit; }
         .search-input::placeholder { color: #5b6472; }
-        .search-input:focus { border-color: #f43f5e; background: rgba(244,63,94,0.05); box-shadow: 0 0 0 4px rgba(244, 63, 94, 0.14); }
+        .search-input:focus { border-color: #38bdf8; background: rgba(56,189,248,0.05); box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.14); }
         .search-input:focus-visible { outline: none; }
 
         .toolbar-right { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 
         .sort-select { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.09); color: #cbd5e1; padding: 9px 12px; border-radius: 10px; font-family: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; transition: border-color 0.2s ease; }
-        .sort-select:hover, .sort-select:focus { border-color: #f43f5e; outline: none; }
+        .sort-select:hover, .sort-select:focus { border-color: #38bdf8; outline: none; }
 
         .filter-tabs { display: flex; gap: 8px; background: rgba(0,0,0,0.2); padding: 6px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); }
         .tab-btn { background: transparent; border: none; color: #94a3b8; padding: 8px 16px; border-radius: 6px; font-weight: 700; cursor: pointer; transition: 0.2s; font-size: 12px; font-family: inherit; }
-        .tab-btn.active { background: linear-gradient(135deg, #f43f5e, #be123c); color: white; box-shadow: 0 6px 14px -6px rgba(244,63,94,0.55); }
+        .tab-btn.active { color: white; }
+        .tab-btn.tab-all.active { background: linear-gradient(135deg, #38bdf8, #6366f1); box-shadow: 0 6px 14px -6px rgba(99,102,241,0.45); }
+        .tab-btn.tab-pending.active { background: linear-gradient(135deg, var(--due), var(--due-deep)); box-shadow: 0 6px 14px -6px rgba(224,122,127,0.45); }
+        .tab-btn.tab-settled.active { background: linear-gradient(135deg, #34d399, #059669); box-shadow: 0 6px 14px -6px rgba(52,211,153,0.4); }
         .tab-btn:hover:not(.active) { color: white; background: rgba(255,255,255,0.05); }
         .tab-btn:focus-visible, .back-btn:focus-visible, .btn-log-bill:focus-visible, .btn-pay:focus-visible { outline: 2px solid #38bdf8; outline-offset: 2px; }
 
@@ -337,24 +355,24 @@ export default function VendorLedger() {
         }
         .vendor-item::before {
           content: ''; position: absolute; top: 0; left: 0; bottom: 0; width: 3px;
-          background: linear-gradient(180deg, #f43f5e, #38bdf8); transform: scaleY(0); transform-origin: top;
+          background: linear-gradient(180deg, var(--due), #38bdf8); transform: scaleY(0); transform-origin: top;
           transition: transform 0.35s cubic-bezier(0.16,1,0.3,1);
         }
         .vendor-item:hover::before { transform: scaleY(1); }
-        .vendor-item:hover { background: rgba(255,255,255,0.045); border-color: rgba(244, 63, 94, 0.3); transform: translateY(-2px); box-shadow: 0 10px 24px -12px rgba(0,0,0,0.5); }
-        .vendor-item.urgent { border-color: rgba(244, 63, 94, 0.22); }
+        .vendor-item:hover { background: rgba(255,255,255,0.045); border-color: rgba(167,139,250,0.25); transform: translateY(-2px); box-shadow: 0 10px 24px -12px rgba(0,0,0,0.5); }
+        .vendor-item.urgent { border-color: rgba(224, 122, 127, 0.2); }
         @media (max-width: 768px) { .vendor-item { grid-template-columns: 1fr; gap: 15px; } }
 
         .v-name-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
         .v-name { font-size: 1.2rem; font-weight: 700; color: white; }
         .v-avatar {
           position: relative; width: 34px; height: 34px; border-radius: 50%;
-          background: linear-gradient(135deg, #f43f5e, #be123c); display: flex; align-items: center; justify-content: center;
-          font-weight: 800; font-size: 13px; flex-shrink: 0;
+          display: flex; align-items: center; justify-content: center;
+          font-weight: 800; font-size: 13px; flex-shrink: 0; color: rgba(0,0,0,0.55);
         }
         .v-avatar::before {
           content: ''; position: absolute; inset: -2px; border-radius: 50%; padding: 1px;
-          background: conic-gradient(from 0deg, #f43f5e, #38bdf8, #a78bfa, #f43f5e);
+          background: conic-gradient(from 0deg, var(--due), #38bdf8, #a78bfa, var(--due));
           -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
           -webkit-mask-composite: xor; mask-composite: exclude;
           opacity: 0; transition: opacity 0.3s ease; animation: ringSpin 4s linear infinite;
@@ -485,13 +503,13 @@ export default function VendorLedger() {
               </select>
 
               <div className="filter-tabs">
-                <button className={`tab-btn ${filter === "ALL" ? "active" : ""}`} onClick={() => setFilter("ALL")}>
+                <button className={`tab-btn tab-all ${filter === "ALL" ? "active" : ""}`} onClick={() => setFilter("ALL")}>
                   All
                 </button>
-                <button className={`tab-btn ${filter === "PENDING" ? "active" : ""}`} onClick={() => setFilter("PENDING")}>
+                <button className={`tab-btn tab-pending ${filter === "PENDING" ? "active" : ""}`} onClick={() => setFilter("PENDING")}>
                   Pending
                 </button>
-                <button className={`tab-btn ${filter === "SETTLED" ? "active" : ""}`} onClick={() => setFilter("SETTLED")}>
+                <button className={`tab-btn tab-settled ${filter === "SETTLED" ? "active" : ""}`} onClick={() => setFilter("SETTLED")}>
                   Settled
                 </button>
               </div>
