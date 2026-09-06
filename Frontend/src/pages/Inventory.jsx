@@ -6,7 +6,7 @@ const GST_SLABS = [0, 5, 12, 18, 28];
 const EMPTY_FORM = {
   product_name: "",
   hsn_code: "",
-  unit: "Pcs",
+  unit: "",
   purchase_price: "",
   selling_price: "",
   stock_quantity: "",
@@ -314,7 +314,7 @@ export default function InventoryManager() {
         await api.post("/inventory", {
           product_name: item.product_name.trim(),
           hsn_code: item.hsn_code,
-          unit: item.unit || "Pcs",
+          unit: item.unit || "0",
           purchase_price: Number(item.purchase_price || 0),
           selling_price: Number(item.selling_price || 0),
           stock_quantity: Number(item.stock_quantity || 0),
@@ -794,11 +794,11 @@ body {
             <h3>➕ Add Product</h3>
 
             <div className="mode-toggle">
+               <button className={entryMode === "manual" ? "active" : ""} onClick={() => setEntryMode("manual")}>
+                ✍️ Manual Entry
+              </button>
               <button className={entryMode === "ai" ? "active" : ""} onClick={() => setEntryMode("ai")}>
                 🤖 AI Scan
-              </button>
-              <button className={entryMode === "manual" ? "active" : ""} onClick={() => setEntryMode("manual")}>
-                ✍️ Manual Entry
               </button>
             </div>
 
@@ -1026,7 +1026,7 @@ body {
                     <label>Unit</label>
                     <input
                       className="input"
-                      placeholder="Pcs"
+                      placeholder="0"
                       value={formData.unit}
                       onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
                     />
